@@ -152,9 +152,11 @@ only ever bundled at build time.
   a 5% false-alarm rate (the single model caught 41% and 21%), and at most 2%
   of real videos show HIGH. Modern talking-head fakes remain hard.
 - **Not robust to deliberate attacks.** An attacker with the model files can
-  add invisible noise that flips the result (#15 benchmarks this). The app's
-  job is to help you judge ordinary content, not to resist a determined
-  adversary.
+  add invisible noise that flips the result. #15 measured this and tried the
+  phone-feasible defenses: a consistency check and three rounds of adversarial
+  fine-tuning. None held up against an attacker who adapts, so none ships.
+  The app's job is to help you judge ordinary content, including recompressed
+  and reshared images, not to resist a determined adversary.
 - Like every AI-image detector, the classifier's training data has a cutoff
   and will be weaker against newer generators; compression, screenshotting,
   and intentional adversarial editing can all shift results in either
@@ -173,8 +175,9 @@ provenance, computer vision or Android. Good places to start:
 - [#14 Detector accuracy](https://github.com/as791/genned/issues/14): calibrate
   the scores, and benchmark and propose better on-device detectors.
 - [#15 Adversarial robustness](https://github.com/as791/genned/issues/15):
-  benchmarks and adversarial fine-tuning. If you have a GPU,
-  `notebooks/adversarial_finetune.ipynb` runs on free Colab or Kaggle.
+  an open problem. The benchmarks and the fine-tuning pipeline
+  (`notebooks/adversarial_finetune.ipynb`) are in place. Making these detectors
+  robust likely needs an adversarially pretrained backbone and real GPU time.
 - [#1 Public release readiness](https://github.com/as791/genned/issues/1): the
   checklist for a store release.
 

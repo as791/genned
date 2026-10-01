@@ -430,7 +430,7 @@ The model **collapsed**:
 settled at ln 2, i.e. a constant 50/50 output. That output zeroes the KL term,
 and lr 1e-4 let the model fall into it within 50 steps. Not usable.
 
-**Attempt 3 recipe** (current defaults):
+**Attempt 3 recipe** (current defaults, kept for future retries):
 - **Objective:** TRADES, with β ramping 0 → 3 over 2 epochs and the training ε
   ramping 0 → 4/255 over 1 epoch. PGD-5 with step ε/4.
 - **Learning rate:** 2e-5 for Community Forensics, 1e-5 for EfficientNet-B4,
@@ -445,6 +445,48 @@ and lr 1e-4 let the model fall into it within 50 steps. Not usable.
   nothing is saved or uploaded.
 - **Data:** Defactify's train split only, with `--strict-split`. The notebook
   re-clones the repo and checks the recipe version, so stale cells can't run.
+
+**Attempt 3** (2026-10-01, Colab T4; `as791/genned-robust:commfor-robust-v3.pt`):
+- the conservative recipe above;
+- 6,000 Defactify train images, 6 epochs, about 15 min.
+
+| Community Forensics | Start | Epoch 1.0 | Epoch 2.0 | Epoch 4.0 | Epoch 6.0 |
+|---|---|---|---|---|---|
+| Clean AUC (Defactify validation, in-distribution) | 0.958 | 0.947 | 0.965 | 0.980 | 0.988 |
+| Clean accuracy | 78% | 54% | 88% | 92% | 95% |
+| Robust accuracy, PGD-10 at 2/255 | 5.3% | 0% | 0% | 1.0% | 0.7% |
+| Robust accuracy, PGD-10 at 4/255 | 4.3% | 0% | 0% | 0% | 0% |
+
+The run was stable: no collapse, and every checkpoint after epoch 1.5 is clean-gate
+eligible. **But no robustness was gained.**
+- The TRADES KL term stayed near zero (0.01–0.03) while the clean training loss
+  stayed high (0.54–0.66).
+- So the model met "don't change your answer under attack" by keeping every
+  output close to 50/50, where clean and attacked predictions barely differ.
+  A 4/255 perturbation then flips them.
+- In-batch robust accuracy fell from 50% to 10% over training. This is a softer
+  form of attempt 2's collapse.
+- The clean-AUC gain is in-distribution, since training and validation are both
+  Defactify.
+- The EfficientNet step was skipped by the notebook's guard; it needs ≥ 30%
+  robust accuracy.
+
+**Conclusion: Phase 2b is stopped.** Three attempts on free Colab budgets didn't give
+these detectors any measurable robustness at 4/255. The app keeps the current
+ensemble and stays documented as *not robust to deliberate attacks*. Ordinary
+compression and resharing (jpeg75 / social) are a different matter: they are part
+of the clean benchmarks and are handled.
+
+Robustness would need materially more than this:
+- starting from an adversarially pretrained backbone (robust ImageNet ViT/ConvNeXt
+  checkpoints);
+- a margin-preserving objective (e.g. PGD-AT with a logit-margin term, or MART);
+- far more data and GPU time, on the order of tens of GPU-hours.
+
+The tooling stays in place to retry:
+- `tools/adv_finetune.py` and the notebook;
+- the checkpoint support in Ensemble build and Adversarial eval;
+- the gates below.
 
 **How to run it:**
 1. Run `notebooks/adversarial_finetune.ipynb` on Colab or Kaggle with an
