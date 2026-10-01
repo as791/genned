@@ -1,11 +1,13 @@
 package com.genned.app.ui.settings
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -84,6 +86,10 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
         ) {
             SectionHeading(stringResource(R.string.settings_privacy_heading))
             Text(text = stringResource(R.string.settings_privacy_body), style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = { openPrivacyPolicy(context) }) {
+                Text(text = stringResource(R.string.settings_privacy_policy))
+            }
             Spacer(modifier = Modifier.height(24.dp))
 
             SectionHeading(stringResource(R.string.settings_model_heading))
@@ -241,6 +247,19 @@ private fun DebugLogSection() {
     confirmation?.let { message ->
         Spacer(modifier = Modifier.height(8.dp))
         Text(text = message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/**
+ * Opens the public privacy policy (PRIVACY.md on GitHub) in the browser. The app itself has
+ * no internet permission; the browser loads the page.
+ */
+private fun openPrivacyPolicy(context: Context) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(context.getString(R.string.settings_privacy_policy_url)))
+    try {
+        context.startActivity(intent)
+    } catch (e: ActivityNotFoundException) {
+        // No browser installed: nothing can open the link.
     }
 }
 

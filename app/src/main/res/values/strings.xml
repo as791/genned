@@ -61,7 +61,9 @@
     <!-- Settings -->
     <string name="settings_title">Settings &amp; Privacy</string>
     <string name="settings_privacy_heading">Privacy</string>
-    <string name="settings_privacy_body">Your images are analyzed on this device whenever possible. Genned does not upload your images to any server, and the app has no network permission for image analysis.</string>
+    <string name="settings_privacy_body">Your images and videos are analyzed only on this device. Genned has no internet permission, so it can\'t upload anything: no images, results or usage data.</string>
+    <string name="settings_privacy_policy">Privacy policy</string>
+    <string name="settings_privacy_policy_url" translatable="false">https://github.com/as791/genned/blob/main/PRIVACY.md</string>
     <string name="settings_model_heading">Detection model</string>
     <string name="settings_model_body_present">On-device classifier: %1$s</string>
     <string name="settings_model_body_absent">On-device visual classifier: not bundled in this build. Metadata-based checks still run.</string>

@@ -1,5 +1,8 @@
 # Privacy
 
+Technical detail behind the public, user-facing [privacy policy](../PRIVACY.md), which is
+linked from Settings and each release. Keep the two in sync.
+
 ## What happens to an image you check
 
 1. The image arrives as a `content://` URI (via the Android share sheet or the

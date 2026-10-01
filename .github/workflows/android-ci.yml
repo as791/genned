@@ -2,35 +2,50 @@ name: Android CI
 
 # Runs on GitHub's hosted runners, which have normal internet access to
 # dl.google.com/maven.google.com. This workflow is the actual build/test gate
-# for the project. Pushing a tag vMAJOR.MINOR.PATCH also publishes the signed
-# release APK as a GitHub release (README "Publishing a release").
+# for the project. Pushing a tag vMAJOR.MINOR.PATCH, or running it by hand with a
+# release version, also publishes the signed release APK as a GitHub release
+# (README "Publishing a release").
 on:
   push:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Publish a GitHub release with this version, e.g. 0.2.0 (tag v0.2.0 is created). Blank = build only.
+        default: ''
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # only used by the tag-only "Publish GitHub release" step
+      contents: write   # only used by the release-only "Publish GitHub release" step
     steps:
       - uses: actions/checkout@v4
 
       # Every CI build gets a higher versionCode than the last, so any of them installs as
       # an update (app/build.gradle.kts reads GENNED_VERSION_CODE). Release tags run in this
-      # same workflow, so they share its run counter. A tag also sets versionName.
+      # same workflow, so they share its run counter. A release also sets versionName.
       - name: Version
+        env:
+          INPUT_VERSION: ${{ inputs.release_version }}
         run: |
           echo "GENNED_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          VERSION=""
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
+          elif [ -n "$INPUT_VERSION" ]; then
+            VERSION="${INPUT_VERSION#v}"
+          fi
+          if [ -n "$VERSION" ]; then
             if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Release tag $GITHUB_REF_NAME must look like v1.2.3"
+              echo "::error::Release version '$VERSION' must look like 1.2.3"
               exit 1
             fi
             echo "GENNED_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+            echo "GENNED_RELEASE_TAG=v$VERSION" >> "$GITHUB_ENV"
+            echo "Publishing release v$VERSION (versionCode $((1000 + GITHUB_RUN_NUMBER)))"
           fi
 
       - name: Set up JDK 17
@@ -141,10 +156,11 @@ jobs:
             app/build/outputs/bundle/release/*.aab
             app/build/outputs/mapping/release/mapping.txt
 
-      # Tag builds only: publish the signed APK (what people install) and its checksum.
-      # The AAB and mapping.txt stay in the genned-release artifact above.
+      # Release builds only: publish the signed APK (what people install) and its checksum.
+      # The AAB and mapping.txt stay in the genned-release artifact above. For a manual run
+      # the release creates its tag on the commit that was built.
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.GENNED_RELEASE_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -178,11 +194,11 @@ jobs:
           - Signing certificate SHA-256: \`$CERT_SHA256\`. Every Genned release is signed with this certificate.
 
           ## Privacy
-          Everything is analyzed on your phone. Images, videos and screen captures are never uploaded. There are no accounts, ads or analytics.
+          Everything is analyzed on your phone. Images, videos and screen captures are never uploaded. There are no accounts, ads or analytics, and the app has no internet permission. Full policy: https://github.com/as791/genned/blob/main/PRIVACY.md
 
           Build: versionCode $GENNED_VERSION_CODE, commit $GITHUB_SHA.
           EOF
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
+          gh release create "$GENNED_RELEASE_TAG" dist/* --target "$GITHUB_SHA" \
             --title "Genned $GENNED_VERSION_NAME" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Upload test reports

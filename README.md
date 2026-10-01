@@ -18,6 +18,9 @@ when Android asks. Each release lists the APK's SHA-256 and the signing certific
 fingerprint. The app has no internet permission, so it can't tell you about updates. Watch
 the repository's releases instead, and install a newer APK over the old one.
 
+Privacy: everything runs on your phone and nothing is collected. See the
+[privacy policy](PRIVACY.md).
+
 ## What it does
 
 1. You share an image into Genned (or pick one directly from the app).
@@ -148,14 +151,16 @@ Then GitHub and Play installs can update each other.
 
 ### Publishing a release
 
-Push a version tag. The same CI workflow builds, tests and signs the release, then
-creates a GitHub release with `genned-<version>.apk` and `SHA256SUMS.txt`:
+In GitHub, open Actions → Android CI → Run workflow and enter a version such as `0.2.0`,
+or push a tag:
 
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-The tag must look like `vMAJOR.MINOR.PATCH`; it sets `versionName`. `versionCode` keeps
+Either way, the same CI workflow builds, tests and signs the release, then creates a GitHub
+release `v0.2.0` with `genned-0.2.0.apk` and `SHA256SUMS.txt`. The version must look like
+`MAJOR.MINOR.PATCH`; it sets `versionName`. `versionCode` keeps
 counting with the workflow's runs, so each release installs over the previous one. The
 step fails if the upload-key secrets are missing, so an unsigned APK is never published.
 The AAB and `mapping.txt` stay in that run's `genned-release` artifact.
