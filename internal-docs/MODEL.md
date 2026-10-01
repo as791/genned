@@ -392,36 +392,56 @@ n = 24) also covered:
 ### Phase 2b: adversarial fine-tuning
 
 Only training-time defenses move adaptive white-box numbers. `tools/adv_finetune.py`
-fine-tunes each model with PGD adversarial training (Madry et al.):
-- batches are half clean, half PGD-3 at ε = 4/255;
-- low learning rate, frozen BatchNorm statistics;
-- data gets the app's preprocessing, including random original / jpeg75 /
-  social conditions;
-- **train splits only**, with `fetch_eval_data.py --strict-split`. Every
-  benchmark uses the test splits.
+fine-tunes each model on the app's own preprocessing (random original / jpeg75 / social,
+then the model's view), keeps BatchNorm statistics frozen, and keeps the epoch with the
+best PGD-10 robust accuracy at 4/255 on Defactify validation whose clean AUC is within 0.01
+of the starting model's.
 
-It keeps the epoch with the best PGD-10 robust accuracy on Defactify
-validation whose clean AUC is within 0.01 of the starting model's.
+**Attempt 1** (2026-09-26, Colab T4; `as791/genned-robust:commfor-robust.pt`):
+- Community Forensics only: PGD-AT, half of each batch attacked with PGD-3 at 4/255,
+  lr 1e-5, 2 epochs.
+- Data: 8,000 train images from Defactify plus MJ/DALL·E/SD/NBP.
+
+| Community Forensics | As shipped | Epoch 1 | Epoch 2 |
+|---|---|---|---|
+| Clean AUC (Defactify validation) | 0.958 | 0.990 | 0.994 |
+| Robust accuracy, PGD-10 at 4/255 | 3.7% | **1.0%** | **1.0%** |
+
+No robustness was gained:
+- The clean half of each batch was easy to fit; the attacked half wasn't learned
+  in 500 small steps.
+- The clean-AUC jump is in-distribution adaptation (train and test splits of
+  the same datasets), not better generalization. Not built or shipped.
+
+**Attempt 2 recipe** (current defaults):
+- **Objective:** TRADES (Zhang et al. 2019): loss = clean BCE + 6 × KL(clean ‖
+  adversarial). Every image gets a PGD-5 copy at 4/255 (step 1/255) that
+  maximizes that KL.
+- **Learning rate:** 1e-4 for Community Forensics, 5e-5 for EfficientNet-B4,
+  with 5% warmup, then cosine.
+- **Epochs:** 8 and 4.
+- **Logging:** clean loss, robust loss and in-batch robust accuracy every 50
+  steps; validation robust accuracy at 2/255 and 4/255.
+- **Data: Defactify's train split only** (`fetch_eval_data.py --strict-split`).
+  MJ/DALL·E/SD/NBP, DF26 and DeepAction stay entirely unseen.
 
 **How to run it:**
-1. Open `notebooks/adversarial_finetune.ipynb` in Colab or Kaggle (free
-   T4/P100).
-2. Add an `HF_TOKEN` secret with write scope.
-3. Run all, about 1–1.5 h. The weights go to a private Hugging Face repo
-   `<user>/genned-robust`.
-4. Then run **Ensemble build** with
-   `bundled_checkpoint=<repo>:bundled-robust.pt`,
-   `commfor_checkpoint=<repo>:commfor-robust.pt` and
-   `assets_branch=model-assets-robust`. This exports, converts to fp16,
-   parity-checks, benchmarks photos and video, and fits the calibration.
-5. Then run **Adversarial eval** with
-   `assets_branch=model-assets-robust`, `defenses=["none"]`.
+1. Run `notebooks/adversarial_finetune.ipynb` on Colab or Kaggle with an
+   `HF_TOKEN` secret (write scope). It uploads `*-robust-v2.pt` to your private
+   HF repo.
+2. Run **Ensemble build** with `commfor_checkpoint=<repo>:commfor-robust-v2.pt`.
+   Add `bundled_checkpoint=<repo>:bundled-robust-v2.pt` if that model was
+   trained too. Set `assets_branch=model-assets-robust`.
+3. Run **Adversarial eval** with `assets_branch=model-assets-robust`,
+   `defenses=["none"]`.
 
-**Ship gates** (robust vs current ensemble):
-1. Worst-case AI caught at 5% false alarms over photos + video stays ≥ 27%
-   (now 30%).
+**Ship gates** (robust vs current ensemble). Clean gates use **held-out data only**:
+MJ/DALL·E/SD/NBP, DF26 and DeepAction. Defactify is in-distribution after fine-tuning,
+so it's reported but not gated.
+1. Worst-case AI caught at 5% false alarms over the held-out sets is no more
+   than 3 points below the current ensemble's on the same sets.
 2. Real shown HIGH ≤ 5% and AI shown LOW ≤ 10% at the recalibrated bands.
-3. Video AUCs don't drop more than 0.02.
+3. Video AUCs drop by at most 0.02.
 4. Worst-case evasion at 4/255, all attacks, direct and laundered, falls from
    100% to **≤ 50%**, and framing at 4/255 falls too.
 

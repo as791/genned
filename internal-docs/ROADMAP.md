@@ -59,6 +59,9 @@ adaptive attacker on the shipped ensemble. The consistency check also flags 1 in
 **Phase 2b:** adversarial fine-tuning at ε = 4/255
 (`tools/adv_finetune.py`, `notebooks/adversarial_finetune.ipynb`, free Colab or
 Kaggle GPU). It ships only if it passes the clean and robust gates in MODEL.md.
+Attempt 1 (PGD-AT, lr 1e-5) gained no robustness (1% at 4/255). Attempt 2 uses
+TRADES with a stronger budget and trains on Defactify only, so the other benchmarks
+stay held out.
 
 Order: Phase 1 (including the ensemble decision) → Phase 2 → V2. The goal is a
 working Android app with good, well-calibrated results before any other platform.
