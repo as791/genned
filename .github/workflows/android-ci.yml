@@ -83,6 +83,7 @@ jobs:
             test -z "$(git status --porcelain app/schemas)"
           else
             echo "::warning::app/schemas is not committed yet; uploading the generated schema as an artifact."
+            find app/schemas -name '*.json' -print -exec cat {} \;
           fi
 
       - name: Upload Room schema
