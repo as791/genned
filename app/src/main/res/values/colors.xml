@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#1B1F3B</color>
+    <!-- Window behind Compose; matches NeutralBackgroundLight / NeutralBackgroundDark (ui/theme/Color.kt). -->
+    <color name="window_background">#FBFBFF</color>
 </resources>

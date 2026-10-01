@@ -8,6 +8,7 @@ object Routes {
     const val RESULT_PATTERN = "result/{analysisId}"
     const val HISTORY = "history"
     const val SETTINGS = "settings"
+    const val LICENSES = "licenses"
 
     /**
      * Intent extra key used to open a specific saved analysis directly (e.g. from

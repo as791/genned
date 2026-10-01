@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.navigation.compose.rememberNavController
 import com.genned.app.data.sharing.SharedMedia
 import com.genned.app.data.sharing.SharedMediaKind
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
     private val pendingResultId = mutableStateOf<Long?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen() // before super.onCreate: swaps Theme.Genned.Starting for Theme.Genned
         super.onCreate(savedInstanceState)
         // On recreation getIntent() is still the original share; the restored back stack already reflects it.
         if (savedInstanceState == null) handleIntent(intent)

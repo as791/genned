@@ -102,6 +102,36 @@ Run tests:
 ./gradlew testDebugUnitTest :domain:test
 ```
 
+### Release builds
+
+CI builds the **release** variant on every push (`lintRelease`, `assembleRelease`,
+`bundleRelease`), so R8 code shrinking and resource shrinking are always exercised. The
+outputs and R8's `mapping.txt` are uploaded as the `genned-release` artifact. Release
+builds strip all debug-level logging and hide the debug-log tools.
+
+Release builds are signed only with a **private upload key**. The key is never committed;
+the committed `app/debug.keystore` signs debug builds only. Without the key, the release
+build is produced unsigned. To sign it:
+
+1. Create an upload key once, on your own machine, and back it up somewhere safe:
+   ```bash
+   keytool -genkeypair -v -keystore genned-upload.jks -alias genned-upload \
+     -keyalg RSA -keysize 4096 -validity 10000
+   base64 -w0 genned-upload.jks > genned-upload.jks.b64   # macOS: base64 -i genned-upload.jks
+   ```
+2. In the GitHub repository, open Settings → Secrets and variables → Actions, and add:
+   - `UPLOAD_KEYSTORE_BASE64`: the contents of `genned-upload.jks.b64`;
+   - `UPLOAD_STORE_PASSWORD`;
+   - `UPLOAD_KEY_ALIAS` (here `genned-upload`);
+   - `UPLOAD_KEY_PASSWORD`.
+3. The next CI run produces a signed release APK and a signed AAB. Upload the AAB to Play
+   with **Play App Signing** on, so Google holds the app signing key and this key is only
+   your upload key.
+
+The keystore is written to the runner's temp directory for the build and deleted
+afterwards. Each CI build gets `versionCode` = 1000 + run number, so successive builds
+install and upload as updates.
+
 ## How to replace/update the ML model
 
 The bundled model lives at `app/src/main/assets/models/ai-image-detector.onnx`.

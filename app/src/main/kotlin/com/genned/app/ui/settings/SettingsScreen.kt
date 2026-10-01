@@ -56,7 +56,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
     val context = LocalContext.current
     val modelBundled = remember { ModelAssets.isBundled(context) }
     val ensembleBundled = remember {
@@ -105,14 +105,22 @@ fun SettingsScreen(onBack: () -> Unit) {
                 text = stringResource(R.string.settings_version, BuildConfig.VERSION_NAME),
                 style = MaterialTheme.typography.bodyMedium,
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(onClick = onOpenLicenses) {
+                Text(text = stringResource(R.string.settings_licenses))
+            }
             Spacer(modifier = Modifier.height(24.dp))
 
             HorizontalDivider()
             Spacer(modifier = Modifier.height(24.dp))
             SectionHeading(stringResource(R.string.settings_experimental_heading))
             OverlaySection()
-            Spacer(modifier = Modifier.height(24.dp))
-            DebugLogSection()
+            // Diagnostics for testers only: release builds have neither this section nor the
+            // debug-level log lines it would copy (R8 strips Log.d/Log.v, see proguard-rules.pro).
+            if (BuildConfig.DEBUG) {
+                Spacer(modifier = Modifier.height(24.dp))
+                DebugLogSection()
+            }
             Spacer(modifier = Modifier.height(32.dp))
         }
     }

@@ -58,8 +58,11 @@ persistent logs. Standard Android crash/ANR reporting (if a developer enables on
 in a future build) is out of scope for this document and must be disclosed
 separately if added — see `internal-docs/ROADMAP.md` for what is *not* in this build.
 
-Settings -> Experimental -> "Copy debug log" is a manual, user-initiated exception
-worth calling out specifically: tapping it reads this app's own recent on-device
+**Release builds** contain no debug-level logging at all (R8 strips every `Log.d` /
+`Log.v` call, see `app/proguard-rules.pro`) and no "Copy debug log" button.
+
+In debug/test builds only, Settings -> Experimental -> "Copy debug log" is a manual,
+user-initiated exception worth calling out specifically: tapping it reads this app's own recent on-device
 log (via `LogcatCapture`) and copies it to your clipboard, so you can hand it to
 a developer if something's misbehaving (e.g. the overlay bubble). It only ever
 contains what the overlay code above already logs — app package names,

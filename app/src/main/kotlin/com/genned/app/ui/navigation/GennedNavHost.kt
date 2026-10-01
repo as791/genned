@@ -11,6 +11,7 @@ import com.genned.app.ui.analyzing.AnalyzingScreen
 import com.genned.app.ui.history.HistoryScreen
 import com.genned.app.ui.home.HomeScreen
 import com.genned.app.ui.result.ResultScreen
+import com.genned.app.ui.settings.LicensesScreen
 import com.genned.app.ui.settings.SettingsScreen
 
 @Composable
@@ -60,7 +61,13 @@ fun GennedNavHost(navController: NavHostController = rememberNavController()) {
             )
         }
         composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+            SettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenLicenses = { navController.navigate(Routes.LICENSES) },
+            )
+        }
+        composable(Routes.LICENSES) {
+            LicensesScreen(onBack = { navController.popBackStack() })
         }
     }
 }

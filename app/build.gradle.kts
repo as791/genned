@@ -14,7 +14,9 @@ android {
         applicationId = "com.genned.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
+        // CI sets GENNED_VERSION_CODE (1000 + workflow run number) so every CI build can be
+        // uploaded to Play as an update; local builds stay at 1.
+        versionCode = System.getenv("GENNED_VERSION_CODE")?.toIntOrNull() ?: 1
         versionName = "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -29,10 +31,23 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Private upload key for Play, never committed: CI writes it from the
+        // UPLOAD_KEYSTORE_BASE64 secret (see README "Release builds"). Without these
+        // variables the release build is simply unsigned (still built and R8-checked in CI).
+        val uploadStore = System.getenv("GENNED_UPLOAD_STORE_FILE")
+        if (uploadStore != null && file(uploadStore).exists()) {
+            create("upload") {
+                storeFile = file(uploadStore)
+                storePassword = System.getenv("GENNED_UPLOAD_STORE_PASSWORD")
+                keyAlias = System.getenv("GENNED_UPLOAD_KEY_ALIAS")
+                keyPassword = System.getenv("GENNED_UPLOAD_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("upload")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -80,6 +95,7 @@ dependencies {
     implementation(project(":domain"))
 
     implementation(libs.core.ktx)
+    implementation(libs.core.splashscreen)
     implementation(libs.lifecycle.runtime.ktx)
     implementation(libs.lifecycle.viewmodel.ktx)
     implementation(libs.lifecycle.viewmodel.compose)

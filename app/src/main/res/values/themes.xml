@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose owns theming (see ui/theme/Theme.kt); this base theme only sets the
-         window background before Compose takes over, avoiding a white flash. -->
-    <style name="Theme.Genned" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Compose owns theming (see ui/theme/Theme.kt); this base theme only paints the window
+         before Compose draws, in the same color, so there is no flash. values-night has the
+         dark variant. -->
+    <style name="Theme.Genned" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+
+    <!-- Launch theme (androidx.core:core-splashscreen): the same splash on API 26-35, then
+         MainActivity.installSplashScreen() switches to Theme.Genned. The white logo sits on
+         the brand navy (the launcher icon's own background) in light and dark mode alike. -->
+    <style name="Theme.Genned.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Genned</item>
+    </style>
 </resources>
