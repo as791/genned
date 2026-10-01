@@ -2,22 +2,36 @@ name: Android CI
 
 # Runs on GitHub's hosted runners, which have normal internet access to
 # dl.google.com/maven.google.com. This workflow is the actual build/test gate
-# for the project.
+# for the project. Pushing a tag vMAJOR.MINOR.PATCH also publishes the signed
+# release APK as a GitHub release (README "Publishing a release").
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # only used by the tag-only "Publish GitHub release" step
     steps:
       - uses: actions/checkout@v4
 
-      # Every CI build gets a higher versionCode than the last, so any of them can be
-      # uploaded to Play as an update (app/build.gradle.kts reads GENNED_VERSION_CODE).
-      - name: Version code
-        run: echo "GENNED_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+      # Every CI build gets a higher versionCode than the last, so any of them installs as
+      # an update (app/build.gradle.kts reads GENNED_VERSION_CODE). Release tags run in this
+      # same workflow, so they share its run counter. A tag also sets versionName.
+      - name: Version
+        run: |
+          echo "GENNED_VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Release tag $GITHUB_REF_NAME must look like v1.2.3"
+              exit 1
+            fi
+            echo "GENNED_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -126,6 +140,50 @@ jobs:
             app/build/outputs/apk/release/*.apk
             app/build/outputs/bundle/release/*.aab
             app/build/outputs/mapping/release/mapping.txt
+
+      # Tag builds only: publish the signed APK (what people install) and its checksum.
+      # The AAB and mapping.txt stay in the genned-release artifact above.
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::error::No signed release APK. Releases need the upload-key secrets (README \"Release builds\")."
+            exit 1
+          fi
+          APKSIGNER="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$APKSIGNER" verify --print-certs "$APK" | tee "$RUNNER_TEMP/certs.txt"
+          CERT_SHA256="$(grep -m1 'certificate SHA-256 digest' "$RUNNER_TEMP/certs.txt" | sed 's/.*digest: //')"
+          NAME="genned-$GENNED_VERSION_NAME.apk"
+          mkdir -p dist
+          cp "$APK" "dist/$NAME"
+          (cd dist && sha256sum "$NAME" > SHA256SUMS.txt)
+          cat > "$RUNNER_TEMP/notes.md" <<EOF
+          Genned $GENNED_VERSION_NAME: checks on your phone whether an image or video (Reels, Shorts) is likely AI-generated. Android 8.0 or newer.
+
+          > This is an estimate, not proof. See "Known accuracy limitations" in the README.
+
+          ## Install
+          1. On your phone, download **$NAME** below and open it.
+          2. Android asks you to allow installs from your browser or Files app ("Install unknown apps"). Allow it for that app, then tap Install.
+          3. If you installed a test build signed with a different key, uninstall it first: Android only updates an app with one signed by the same key.
+
+          ## Updates
+          Genned has no internet permission, so it can't check for updates itself. To hear about new versions, use Watch → Custom → Releases on the repository. Install a newer APK over the old one; your history is kept.
+
+          ## Verify (optional)
+          - APK SHA-256: in SHA256SUMS.txt.
+          - Signing certificate SHA-256: \`$CERT_SHA256\`. Every Genned release is signed with this certificate.
+
+          ## Privacy
+          Everything is analyzed on your phone. Images, videos and screen captures are never uploaded. There are no accounts, ads or analytics.
+
+          Build: versionCode $GENNED_VERSION_CODE, commit $GITHUB_SHA.
+          EOF
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag \
+            --title "Genned $GENNED_VERSION_NAME" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Upload test reports
         if: always()

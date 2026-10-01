@@ -17,7 +17,8 @@ android {
         // CI sets GENNED_VERSION_CODE (1000 + workflow run number) so every CI build can be
         // uploaded to Play as an update; local builds stay at 1.
         versionCode = System.getenv("GENNED_VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "0.1.0"
+        // CI sets GENNED_VERSION_NAME from the release tag (v1.2.3 -> 1.2.3).
+        versionName = System.getenv("GENNED_VERSION_NAME") ?: "0.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

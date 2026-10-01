@@ -9,6 +9,15 @@ it — never a claim of certainty.
 > **This is an estimate, not proof.** AI-content detection can produce false
 > positives and false negatives. See "Known accuracy limitations" below.
 
+## Download
+
+Genned isn't on Google Play yet. Install it from
+[GitHub Releases](https://github.com/as791/genned/releases/latest) (Android 8.0+):
+download `genned-<version>.apk` on your phone, open it, and allow installs from that app
+when Android asks. Each release lists the APK's SHA-256 and the signing certificate's
+fingerprint. The app has no internet permission, so it can't tell you about updates. Watch
+the repository's releases instead, and install a newer APK over the old one.
+
 ## What it does
 
 1. You share an image into Genned (or pick one directly from the app).
@@ -124,13 +133,32 @@ build is produced unsigned. To sign it:
    - `UPLOAD_STORE_PASSWORD`;
    - `UPLOAD_KEY_ALIAS` (here `genned-upload`);
    - `UPLOAD_KEY_PASSWORD`.
-3. The next CI run produces a signed release APK and a signed AAB. Upload the AAB to Play
-   with **Play App Signing** on, so Google holds the app signing key and this key is only
-   your upload key.
+3. The next CI run produces a signed release APK and a signed AAB (the AAB is for Play,
+   later).
 
 The keystore is written to the runner's temp directory for the build and deleted
 afterwards. Each CI build gets `versionCode` = 1000 + run number, so successive builds
 install and upload as updates.
+
+**Keep the upload key backed up.** Releases are installed directly from GitHub, so this key
+is also the key every installed copy trusts. Without it, no update can ever install over
+an existing copy. If the app goes to Play later, enrol in Play App Signing with **this same
+key** (Play Console's "use a key from Java keystore" option, not a Google-generated key).
+Then GitHub and Play installs can update each other.
+
+### Publishing a release
+
+Push a version tag. The same CI workflow builds, tests and signs the release, then
+creates a GitHub release with `genned-<version>.apk` and `SHA256SUMS.txt`:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+The tag must look like `vMAJOR.MINOR.PATCH`; it sets `versionName`. `versionCode` keeps
+counting with the workflow's runs, so each release installs over the previous one. The
+step fails if the upload-key secrets are missing, so an unsigned APK is never published.
+The AAB and `mapping.txt` stay in that run's `genned-release` artifact.
 
 ## How to replace/update the ML model
 
