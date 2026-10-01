@@ -413,24 +413,45 @@ No robustness was gained:
 - The clean-AUC jump is in-distribution adaptation (train and test splits of
   the same datasets), not better generalization. Not built or shipped.
 
-**Attempt 2 recipe** (current defaults):
-- **Objective:** TRADES (Zhang et al. 2019): loss = clean BCE + 6 × KL(clean ‖
-  adversarial). Every image gets a PGD-5 copy at 4/255 (step 1/255) that
-  maximizes that KL.
-- **Learning rate:** 1e-4 for Community Forensics, 5e-5 for EfficientNet-B4,
+**Attempt 2** (2026-10-01, Colab T4; overwrote `commfor-robust.pt` on HF):
+- TRADES with β = 6, lr 1e-4.
+- By mistake it ran attempt 1's cached notebook cells: 2 epochs, Defactify +
+  MJ/DALL·E/SD/NBP.
+
+The model **collapsed**:
+
+| Community Forensics | As shipped | Epoch 1 | Epoch 2 |
+|---|---|---|---|
+| Clean AUC | 0.958 | 0.706 | 0.693 |
+| Clean accuracy | 78% | 50% | 51% |
+| Robust accuracy at 4/255 | 4.3% | 31.7%* | 0% |
+
+\*A degenerate model scores as "robust" on half the images. The clean loss
+settled at ln 2, i.e. a constant 50/50 output. That output zeroes the KL term,
+and lr 1e-4 let the model fall into it within 50 steps. Not usable.
+
+**Attempt 3 recipe** (current defaults):
+- **Objective:** TRADES, with β ramping 0 → 3 over 2 epochs and the training ε
+  ramping 0 → 4/255 over 1 epoch. PGD-5 with step ε/4.
+- **Learning rate:** 2e-5 for Community Forensics, 1e-5 for EfficientNet-B4,
   with 5% warmup, then cosine.
-- **Epochs:** 8 and 4.
-- **Logging:** clean loss, robust loss and in-batch robust accuracy every 50
-  steps; validation robust accuracy at 2/255 and 4/255.
-- **Data: Defactify's train split only** (`fetch_eval_data.py --strict-split`).
-  MJ/DALL·E/SD/NBP, DF26 and DeepAction stay entirely unseen.
+- **Epochs:** 6 and 4.
+- **Validation** every half epoch: clean AUC/accuracy, and robust accuracy at
+  2/255 and 4/255.
+- **Collapse guard:** training stops if clean AUC falls more than 0.05 below
+  the start.
+- **Eligibility:** a checkpoint is eligible only if clean AUC stays within
+  0.01 and clean accuracy within 5 points of the start. If none is eligible,
+  nothing is saved or uploaded.
+- **Data:** Defactify's train split only, with `--strict-split`. The notebook
+  re-clones the repo and checks the recipe version, so stale cells can't run.
 
 **How to run it:**
 1. Run `notebooks/adversarial_finetune.ipynb` on Colab or Kaggle with an
-   `HF_TOKEN` secret (write scope). It uploads `*-robust-v2.pt` to your private
+   `HF_TOKEN` secret (write scope). It uploads `*-robust-v3.pt` to your private
    HF repo.
-2. Run **Ensemble build** with `commfor_checkpoint=<repo>:commfor-robust-v2.pt`.
-   Add `bundled_checkpoint=<repo>:bundled-robust-v2.pt` if that model was
+2. Run **Ensemble build** with `commfor_checkpoint=<repo>:commfor-robust-v3.pt`.
+   Add `bundled_checkpoint=<repo>:bundled-robust-v3.pt` if that model was
    trained too. Set `assets_branch=model-assets-robust`.
 3. Run **Adversarial eval** with `assets_branch=model-assets-robust`,
    `defenses=["none"]`.

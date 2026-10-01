@@ -2,16 +2,18 @@
 """Phase 2b (#15): adversarial fine-tuning of the app's two detectors.
 
 Fine-tunes one of the shipped models so small, invisible perturbations can't flip it.
-Default objective: TRADES (Zhang et al. 2019), loss = BCE(clean) + beta * KL(clean || adv),
-where every image gets an adversarial copy crafted with PGD-5 at --eps (default 4/255) to
-maximize that KL, in [0,1] pixel space before ImageNet normalization (exactly where
-tools/adv_eval.py attacks). --objective pgd-at trains on attacked images (Madry et al.).
+Objective: TRADES (Zhang et al. 2019), loss = BCE(clean) + beta * KL(clean || adv), where
+every image gets an adversarial copy crafted with PGD-5 to maximize that KL, in [0,1]
+pixel space before ImageNet normalization (exactly where tools/adv_eval.py attacks).
+--objective pgd-at trains on attacked images instead (Madry et al.).
 
-Attempt 1 (PGD-AT, half the batch attacked, lr 1e-5, 2 epochs) left Community Forensics
-at 1% robust accuracy, so the defaults are now a much stronger budget: lr 1e-4 (commfor) /
-5e-5 (bundled), 8 / 4 epochs, 5% warmup then cosine. The log shows clean loss, robust
-loss and in-batch robust accuracy every 50 steps, so a run that isn't learning
-robustness is visible early.
+History (internal-docs/MODEL.md): attempt 1 (PGD-AT, lr 1e-5) learned no robustness;
+attempt 2 (TRADES beta 6, lr 1e-4) collapsed to a constant 50/50 output. The defaults
+are therefore conservative: lr 2e-5 (commfor) / 1e-5 (bundled); beta ramps 0 -> 3 over
+2 epochs and the training eps ramps 0 -> 4/255 over 1 epoch; validation every half
+epoch; training stops if clean AUC falls more than 0.05 below the starting model; and
+a checkpoint is only eligible if clean AUC stays within 0.01 and clean accuracy within
+5 points of the start. If nothing is eligible, nothing is saved or uploaded.
 
   --model commfor   Community Forensics ViT-S 224 (OwensLab/commfor-model-224, MIT)
   --model bundled   Dafilab/ai-image-detector EfficientNet-B4 (Apache-2.0)
@@ -24,23 +26,22 @@ what the clean-accuracy gates use (internal-docs/MODEL.md). Images get the app's
 preprocessing (tools/evaluate.py: a random original / jpeg75 / social condition, then
 app_normalize, then the model's view).
 
-Every epoch is scored on a validation folder: clean AUC, and robust accuracy under
-PGD-10 at each --eval-eps (default 2 and 4 /255). The saved checkpoint is the epoch with
-the best robust accuracy at --eps whose clean AUC is within 0.01 of the starting model's. If no epoch qualifies, the last one is
-saved and the log says so.
+Validation (every half epoch): clean AUC/accuracy, and robust accuracy under PGD-10 at
+each --eval-eps (default 2 and 4 /255). The saved checkpoint is the eligible validation
+point with the best robust accuracy at --eps.
 
 Outputs in --out: <model>-robust[-tag].pt (state_dict) and <model>-train-log[-tag].json
 (numbers only). --push-to-hub uploads both to a *private* Hugging Face model repo. Nothing
 else leaves the machine.
 
 Needs a GPU for real runs (Colab / Kaggle T4 at the defaults with 3,000 images per class:
-about 45 min for commfor, 2-3 h for bundled). --dry-run uses randomly initialised
+about 45-60 min for commfor, 2-3 h for bundled). --dry-run uses randomly initialised
 architectures and a few synthetic images, to test the whole loop on a CPU without downloads.
 
 Usage:
     python tools/adv_finetune.py --model commfor \\
         --train-data data/train/defactify --val-data data/val/defactify \\
-        --tag v2 --out runs --push-to-hub you/genned-robust
+        --tag v3 --out runs --push-to-hub you/genned-robust
 """
 
 from __future__ import annotations
@@ -75,6 +76,7 @@ import torch.nn.functional as F  # noqa: E402
 
 MEAN_T = torch.tensor(MEAN).view(1, 3, 1, 1)
 STD_T = torch.tensor(STD).view(1, 3, 1, 1)
+RECIPE_VERSION = "adv-finetune-v3"  # checked by notebooks/adversarial_finetune.ipynb
 CHECKPOINT_NAME = "{model}-robust{suffix}.pt"
 LOG_NAME = "{model}-train-log{suffix}.json"
 
@@ -229,9 +231,23 @@ def evaluate(model: nn.Module, loader, device, eps_list: list[float], amp: bool)
 
 
 MODEL_DEFAULTS = {  # lr, epochs, batch
-    "commfor": (1e-4, 8, 32),
-    "bundled": (5e-5, 4, 16),
+    "commfor": (2e-5, 6, 32),
+    "bundled": (1e-5, 4, 16),
 }
+
+
+def assess(metrics: dict, base: dict, auc_gate: float, acc_drop: float, collapse_drop: float) -> tuple[bool, bool]:
+    """(eligible, collapsed) for a validation result against the starting model.
+
+    eligible: clean AUC within auc_gate of the start and clean accuracy within acc_drop, so a
+      checkpoint can't be chosen for "robustness" that is really a degenerate constant output
+      (attempt 2: a 50/50 model scored 31.7% "robust").
+    collapsed: clean AUC fell more than collapse_drop below the start - stop training."""
+    base_auc, auc = base["clean_auc"], metrics["clean_auc"]
+    if base_auc is None or auc is None:
+        return True, False
+    eligible = auc >= base_auc - auc_gate and metrics["clean_acc"] >= base["clean_acc"] - acc_drop
+    return eligible, auc < base_auc - collapse_drop
 
 
 def main() -> None:
@@ -243,18 +259,24 @@ def main() -> None:
     parser.add_argument("--val-per-class", type=int, default=150)
     parser.add_argument("--objective", choices=["trades", "pgd-at"], default="trades",
                         help="TRADES (clean CE + beta * KL(clean || adv)) or PGD-AT (CE on attacked images)")
-    parser.add_argument("--beta", type=float, default=6.0, help="TRADES robustness weight")
+    parser.add_argument("--beta", type=float, default=3.0, help="TRADES robustness weight (after the ramp)")
+    parser.add_argument("--beta-ramp-epochs", type=float, default=2.0, help="Linear ramp of beta from 0")
+    parser.add_argument("--eps-ramp-epochs", type=float, default=1.0, help="Linear ramp of the training eps from 0")
     parser.add_argument("--adv-fraction", type=float, default=1.0,
                         help="PGD-AT only: share of each batch that is attacked")
-    parser.add_argument("--epochs", type=int, default=None, help="Default: 8 commfor, 4 bundled")
+    parser.add_argument("--epochs", type=int, default=None, help="Default: 6 commfor, 4 bundled")
     parser.add_argument("--batch-size", type=int, default=None, help="Default: 32 commfor, 16 bundled")
-    parser.add_argument("--lr", type=float, default=None, help="Default: 1e-4 commfor, 5e-5 bundled")
+    parser.add_argument("--lr", type=float, default=None, help="Default: 2e-5 commfor, 1e-5 bundled")
     parser.add_argument("--warmup", type=float, default=0.05, help="Share of steps with linear LR warmup")
     parser.add_argument("--eps", type=float, default=4.0, help="L-inf budget in /255 (training and selection)")
-    parser.add_argument("--alpha", type=float, default=1.0, help="PGD step in /255 when crafting training examples")
-    parser.add_argument("--train-steps", type=int, default=5, help="PGD steps when crafting training examples")
+    parser.add_argument("--train-steps", type=int, default=5,
+                        help="PGD steps when crafting training examples (step size = current eps / 4)")
     parser.add_argument("--eval-eps", default="2,4", help="Budgets (/255) for validation robust accuracy")
-    parser.add_argument("--tag", default="", help="Suffix for the output names, e.g. v2 -> commfor-robust-v2.pt")
+    parser.add_argument("--evals-per-epoch", type=int, default=2)
+    parser.add_argument("--auc-gate", type=float, default=0.01, help="Eligible: clean AUC >= start - this")
+    parser.add_argument("--acc-drop", type=float, default=0.05, help="Eligible: clean accuracy >= start - this")
+    parser.add_argument("--collapse-drop", type=float, default=0.05, help="Stop: clean AUC < start - this")
+    parser.add_argument("--tag", default="", help="Suffix for the output names, e.g. v3 -> commfor-robust-v3.pt")
     parser.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
@@ -271,7 +293,6 @@ def main() -> None:
     lr = args.lr or lr_default
     epochs = args.epochs or epochs_default
     batch = args.batch_size or batch_default
-    eps, alpha = args.eps / 255, args.alpha / 255
     eval_eps = sorted({float(e) for e in args.eval_eps.split(",")} | {args.eps})
     key_name = f"robust_acc_{args.eps:g}"
     suffix = f"-{args.tag}" if args.tag else ""
@@ -291,11 +312,14 @@ def main() -> None:
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch, shuffle=True, drop_last=True,
                                                num_workers=args.workers, pin_memory=amp)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch, num_workers=args.workers)
+    steps_per_epoch = len(train_loader)
+    total_steps = max(1, epochs * steps_per_epoch)
+    eval_every = max(1, steps_per_epoch // max(1, args.evals_per_epoch))
     print(f"{args.model}: {len(train_set)} training / {len(val_set)} validation images, device {device}, "
-          f"{args.objective}, eps {args.eps}/255, lr {lr}, {epochs} epochs, batch {batch}", flush=True)
+          f"{args.objective}, eps {args.eps}/255 (ramp {args.eps_ramp_epochs} ep), beta {args.beta} "
+          f"(ramp {args.beta_ramp_epochs} ep), lr {lr}, {epochs} epochs, batch {batch}", flush=True)
 
     optimizer = torch.optim.AdamW((p for p in model.parameters() if p.requires_grad), lr=lr, weight_decay=0.01)
-    total_steps = max(1, epochs * len(train_loader))
     warmup_steps = max(1, int(args.warmup * total_steps))
 
     def lr_factor(step: int) -> float:
@@ -304,31 +328,43 @@ def main() -> None:
         progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
         return 0.5 * (1 + np.cos(np.pi * min(1.0, progress)))
 
+    def ramp(step: int, ramp_epochs: float) -> float:
+        return 1.0 if ramp_epochs <= 0 else min(1.0, step / (ramp_epochs * steps_per_epoch))
+
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_factor)
     scaler = torch.amp.GradScaler(device.type, enabled=amp)
 
     base = evaluate(model, val_loader, device, eval_eps, amp)
-    print(f"epoch 0 (as shipped): {base}", flush=True)
-    log = {"model": args.model, "objective": args.objective, "beta": args.beta, "eps_255": args.eps,
-           "alpha_255": args.alpha, "train_steps": args.train_steps, "lr": lr, "epochs": epochs, "batch": batch,
+    print(f"start (as shipped): {base}", flush=True)
+    log = {"recipe": RECIPE_VERSION, "model": args.model, "objective": args.objective, "beta": args.beta,
+           "eps_255": args.eps,
+           "beta_ramp_epochs": args.beta_ramp_epochs, "eps_ramp_epochs": args.eps_ramp_epochs,
+           "train_steps": args.train_steps, "lr": lr, "epochs": epochs, "batch": batch,
            "train_images": len(train_set), "val_images": len(val_set), "per_class": args.per_class,
            "train_data": [p.name for p in args.train_data], "dry_run": args.dry_run,
-           "history": [{"epoch": 0, **base}]}
-    best_key, best_state = None, None
+           "base": base, "evaluations": [], "stopped": None, "selected": None, "meets_clean_gate": False}
+    best_robust, best_state = -1.0, None
     started = time.time()
+    step = 0
+    sums = {"loss": 0.0, "clean": 0.0, "robust": 0.0, "batch_robust_acc": 0.0}
+    since = 0
 
     for epoch in range(1, epochs + 1):
-        sums = {"loss": 0.0, "clean": 0.0, "robust": 0.0, "batch_robust_acc": 0.0}
-        for step, (x, y) in enumerate(train_loader, 1):
+        for x, y in train_loader:
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+            cur_eps = args.eps / 255 * ramp(step, args.eps_ramp_epochs)
+            cur_beta = args.beta * ramp(step, args.beta_ramp_epochs)
             model.eval()  # craft the attack with frozen layers
-            if args.objective == "trades":
+            if cur_eps <= 0:
+                adv = x
+            elif args.objective == "trades":
                 with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
                     clean_for_attack = model(x).float()
-                adv = attack(model, x, y, eps, alpha, args.train_steps, amp, clean_logit=clean_for_attack)
+                adv = attack(model, x, y, cur_eps, cur_eps / 4, args.train_steps, amp, clean_logit=clean_for_attack)
             else:
                 n_adv = int(round(args.adv_fraction * len(x)))
-                adv = torch.cat([attack(model, x[:n_adv], y[:n_adv], eps, alpha, args.train_steps, amp), x[n_adv:]])
+                adv = torch.cat([attack(model, x[:n_adv], y[:n_adv], cur_eps, cur_eps / 4, args.train_steps, amp),
+                                 x[n_adv:]])
             model.train()
             freeze_batchnorm(model)
             with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
@@ -337,7 +373,7 @@ def main() -> None:
             clean_loss = F.binary_cross_entropy_with_logits(clean_logit, y)
             if args.objective == "trades":
                 robust_loss = binary_kl(clean_logit, adv_logit).mean()
-                loss = clean_loss + args.beta * robust_loss
+                loss = clean_loss + cur_beta * robust_loss
             else:
                 robust_loss = F.binary_cross_entropy_with_logits(adv_logit, y)
                 loss = robust_loss
@@ -346,37 +382,61 @@ def main() -> None:
             scaler.step(optimizer)
             scale_before = scaler.get_scale()
             scaler.update()
-            if scaler.get_scale() >= scale_before:  # AMP skipped no step: advance the schedule
+            if scaler.get_scale() >= scale_before:  # AMP took the step: advance the schedule
                 scheduler.step()
+            step += 1
+            since += 1
             sums["loss"] += loss.item()
             sums["clean"] += clean_loss.item()
             sums["robust"] += robust_loss.item()
             sums["batch_robust_acc"] += ((adv_logit.detach() > 0).float() == y).float().mean().item()
-            if step % 50 == 0 or step == len(train_loader):
-                avg = {k: v / step for k, v in sums.items()}
-                print(f"epoch {epoch} step {step}/{len(train_loader)} loss {avg['loss']:.4f} "
-                      f"(clean {avg['clean']:.4f}, robust {avg['robust']:.4f}, "
-                      f"in-batch robust acc {avg['batch_robust_acc']:.1%}) "
-                      f"lr {scheduler.get_last_lr()[0]:.2e} ({time.time() - started:.0f}s)", flush=True)
-        metrics = evaluate(model, val_loader, device, eval_eps, amp)
-        metrics.update({f"train_{k}": v / max(1, len(train_loader)) for k, v in sums.items()})
-        print(f"epoch {epoch}: {metrics}", flush=True)
-        log["history"].append({"epoch": epoch, **metrics})
-        clean_ok = base["clean_auc"] is None or (metrics["clean_auc"] or 0) >= base["clean_auc"] - 0.01
-        key = (clean_ok, metrics[key_name])
-        if best_key is None or key > best_key:
-            best_key = key
-            best_state = {k: v.detach().cpu().clone() for k, v in model.net.state_dict().items()}
-            log["selected_epoch"], log["meets_clean_gate"] = epoch, clean_ok
-            log["selected"] = metrics
+            if step % 50 == 0:
+                avg = {k: v / since for k, v in sums.items()}
+                print(f"epoch {epoch} step {step}/{total_steps} loss {avg['loss']:.4f} (clean {avg['clean']:.4f}, "
+                      f"robust {avg['robust']:.4f}, in-batch robust acc {avg['batch_robust_acc']:.1%}) "
+                      f"eps {cur_eps * 255:.2f}/255 beta {cur_beta:.2f} lr {scheduler.get_last_lr()[0]:.2e} "
+                      f"({time.time() - started:.0f}s)", flush=True)
+            if step % eval_every != 0 and step != total_steps:
+                continue
+
+            metrics = evaluate(model, val_loader, device, eval_eps, amp)
+            train_avg = {f"train_{k}": v / max(1, since) for k, v in sums.items()}
+            sums = {k: 0.0 for k in sums}
+            since = 0
+            eligible, collapsed = assess(metrics, base, args.auc_gate, args.acc_drop, args.collapse_drop)
+            record = {"step": step, "epoch": round(step / steps_per_epoch, 2), "eps_255": round(cur_eps * 255, 3),
+                      "beta": round(cur_beta, 3), "eligible": eligible, **metrics, **train_avg}
+            log["evaluations"].append(record)
+            print(f"validation @ epoch {record['epoch']}: clean AUC {metrics['clean_auc']:.3f} "
+                  f"(start {base['clean_auc']:.3f}), clean acc {metrics['clean_acc']:.1%}, "
+                  f"robust @2/255 {metrics.get('robust_acc_2', float('nan')):.1%}, "
+                  f"@{args.eps:g}/255 {metrics[key_name]:.1%} - {'eligible' if eligible else 'NOT eligible'}",
+                  flush=True)
+            if eligible and metrics[key_name] > best_robust:
+                best_robust = metrics[key_name]
+                best_state = {k: v.detach().cpu().clone() for k, v in model.net.state_dict().items()}
+                log["selected"], log["meets_clean_gate"] = record, True
+            if collapsed:
+                log["stopped"] = (f"clean AUC {metrics['clean_auc']:.3f} < {base['clean_auc'] - args.collapse_drop:.3f}"
+                                  f" (start {base['clean_auc']:.3f} - {args.collapse_drop}) at epoch {record['epoch']}")
+                print(f"STOPPED: {log['stopped']}", flush=True)
+                break
+            model.train()
+        if log["stopped"]:
+            break
 
     log["seconds"] = round(time.time() - started)
     checkpoint = args.out / CHECKPOINT_NAME.format(model=args.model, suffix=suffix)
     log_path = args.out / LOG_NAME.format(model=args.model, suffix=suffix)
-    torch.save(best_state, checkpoint)
     log_path.write_text(json.dumps(log, indent=2))
-    print(f"Saved {checkpoint} (epoch {log['selected_epoch']}, clean gate met: {log['meets_clean_gate']}, "
-          f"{key_name}: {log['selected'][key_name]:.1%} vs {base[key_name]:.1%} as shipped)")
+    if best_state is None:
+        print(f"No usable checkpoint: no validation kept clean accuracy within the gate. Nothing saved or "
+              f"uploaded. Log: {log_path}")
+        return
+    torch.save(best_state, checkpoint)
+    sel = log["selected"]
+    print(f"Saved {checkpoint} (epoch {sel['epoch']}): clean AUC {sel['clean_auc']:.3f} vs {base['clean_auc']:.3f}, "
+          f"{key_name} {sel[key_name]:.1%} vs {base[key_name]:.1%} as shipped")
 
     if args.push_to_hub:
         from huggingface_hub import HfApi
