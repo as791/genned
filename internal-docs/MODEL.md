@@ -571,6 +571,26 @@ within the gates.
 On its own, Community Forensics catches almost none of the newest generators:
 Flux.2-klein 0/15, GPT-Image-2 0/5, Seedream 5 0/4, Midjourney 7 2/15.
 
+**The app's score on the newest generators**
+([run 37124490441](https://github.com/as791/genned/actions/runs/37124490441); OpenFake
+test, 250 AI + 250 real; share of AI images scored above 0.5):
+- Overall: AUC 0.874, real shown HIGH 1.2%, AI shown LOW 5.6%.
+
+| Generator | Caught |
+|---|---|
+| **Flux.2-klein-9B** | **16% (4/25)**, the clear blind spot |
+| GPT-Image-2 | 57% (4/7) |
+| Midjourney 7 | 68% (17/25) |
+| GPT-Image-1.5 | 76% (19/25) |
+| Veo 3 frames | 80% (20/25) |
+| Sora 2 frames | 82% (9/11) |
+| Z-Image-Turbo | 84% (21/25) |
+| Seedream 5, Nano Banana Pro, Wan 2.5, Illustrious, Recraft v2 | 100% (small samples) |
+
+Flux.2 is open weights. OpenFake's train split has Flux.2-klein-4B and -base-4B, so the
+Phase 3 training sees that family. The other gaps are proprietary generators, which
+are never trained on, so they stay true held-out tests.
+
 **Gates for a Phase 3 model** (held-out data only):
 1. Worst-case AI caught at 5% false alarms doesn't fall. An accuracy win needs ≥ +3
    points.
