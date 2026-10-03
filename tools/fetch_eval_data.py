@@ -82,6 +82,9 @@ def main() -> None:
     parser.add_argument("--image-col", default=None)
     parser.add_argument("--label-col", default=None)
     parser.add_argument("--generator-col", default=None)
+    parser.add_argument("--max-per-generator", type=int, default=None,
+                        help="Cap AI images per generator, so a dataset with many generators (as a free-text "
+                             "column) isn't dominated by its most common one")
     parser.add_argument("--generator-names", default=None,
                         help="Comma-separated names for integer generator ids; the name 'real' marks real images")
     parser.add_argument("--ai-values", default=None, help="Comma-separated raw label values meaning AI")
@@ -167,6 +170,8 @@ def main() -> None:
     per_generator_quota = (
         math.ceil(args.per_class / len(ai_generators)) if ai_generators else args.per_class
     )
+    if args.max_per_generator:
+        per_generator_quota = min(per_generator_quota, args.max_per_generator)
 
     ds = ds.cast_column(image_col, HFImage(decode=False)).shuffle(seed=args.seed, buffer_size=300)
 

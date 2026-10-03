@@ -3,7 +3,7 @@
 # (same seed -> same images everywhere). A dataset that fails to fetch is skipped with a
 # warning, not fatal.
 # Usage: tools/fetch_all_eval_data.sh [samples_per_class] [name ...]
-#   names: defactify, mj-dalle-sd-nbp (the default set)
+#   names: defactify, mj-dalle-sd-nbp (the default set), openfake
 set -u
 PER_CLASS="${1:-250}"
 shift || true
@@ -28,6 +28,19 @@ fetch() {
       python tools/fetch_eval_data.py \
         --dataset julienlucas/midjourney-dalle-sd-nanobananapro-dataset \
         --out eval-data/mj-dalle-sd-nbp --per-class "$PER_CLASS"
+      ;;
+    openfake)
+      # OpenFake (ComplexDataLab, CC-BY-SA-4.0; proprietary-generator subsets non-commercial,
+      # used here for evaluation only). Its test split holds the newest generators
+      # (2025-26: GPT-Image-1.5/2, Midjourney 7, Flux.2, Nano Banana Pro, Seedream 5,
+      # Z-Image, Recraft, frames from Veo 3 / Sora 2 ...) against ImageNet and DOCCI photos;
+      # its train split holds older generators, so train-on-train / test-on-test measures
+      # generalization to newer generators. Capped per generator for an even spread.
+      python tools/fetch_eval_data.py \
+        --dataset ComplexDataLab/OpenFake --config core --split test --strict-split \
+        --out eval-data/openfake --per-class "$PER_CLASS" \
+        --label-col label --ai-values fake --real-values real --generator-col model \
+        --max-per-generator $(( (PER_CLASS + 9) / 10 )) --max-scan 40000
       ;;
     *)
       echo "::error::unknown dataset $1"

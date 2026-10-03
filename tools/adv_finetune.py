@@ -1,5 +1,24 @@
 #!/usr/bin/env python3
-"""Phase 2b (#15): adversarial fine-tuning of the app's two detectors.
+"""Fine-tuning of the app's two detectors: Phase 3 (accuracy, everyday edits, universal
+attacks) and Phase 2b (#15, per-image adversarial training).
+
+Phase 3 objectives (internal-docs/MODEL.md "Phase 3"):
+  aug       clean BCE on images that get a random everyday edit (tools/evaluate.py
+            EDIT_CONDITIONS: noise, filters, rescaling, crops, screenshots, ...) 60% of
+            the time, else original / jpeg75 / social. The accuracy lever.
+  uat       universal adversarial training (Shafahi et al. 2020): two perturbations
+            shared by the whole dataset (one pushes AI images toward "real", one real
+            images toward "AI"), randomly cropped/rescaled each step. One backward pass
+            trains the model on clean + perturbed images and gives the perturbations'
+            gradient, which they ascend. About the cost of training on 2x the images.
+  aug+uat   both (the Phase 3 default in notebooks/robust_finetune_kaggle.ipynb)
+Validation for these: clean AUC/accuracy, AUC under a fixed set of edits, and robust
+accuracy against a FRESH universal perturbation fit on one half of the validation images
+against the current model and scored on the other half (--eps). Selection: the eligible
+checkpoint with the best edited AUC (aug), universal robust accuracy (uat), or their
+mean (aug+uat).
+
+Phase 2b objectives, kept for reference (they gained no robustness, see MODEL.md):
 
 Fine-tunes one of the shipped models so small, invisible perturbations can't flip it.
 Objective: TRADES (Zhang et al. 2019), loss = BCE(clean) + beta * KL(clean || adv), where
@@ -60,11 +79,13 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import (  # noqa: E402
     CONDITIONS,
+    EDIT_CONDITIONS,
     MEAN,
     STD,
     app_normalize,
     collect_images,
     commfor_view,
+    condition_seed,
     degrade,
     roc_auc,
     to_model_input,
@@ -76,7 +97,11 @@ import torch.nn.functional as F  # noqa: E402
 
 MEAN_T = torch.tensor(MEAN).view(1, 3, 1, 1)
 STD_T = torch.tensor(STD).view(1, 3, 1, 1)
-RECIPE_VERSION = "adv-finetune-v3"  # checked by notebooks/adversarial_finetune.ipynb
+RECIPE_VERSION = "phase3-v1"  # checked by notebooks/robust_finetune_kaggle.ipynb
+PHASE2B_RECIPE = "adv-finetune-v3"  # checked by notebooks/adversarial_finetune.ipynb (Phase 2b)
+PHASE3_OBJECTIVES = ("aug", "uat", "aug+uat")
+# Edits the validation AUC is measured under (a spread of the everyday-edit families).
+VAL_EDITS = ("noise4", "filter", "rescale", "webp50", "screenshot", "chain_shot")
 CHECKPOINT_NAME = "{model}-robust{suffix}.pt"
 LOG_NAME = "{model}-train-log{suffix}.json"
 
@@ -146,17 +171,24 @@ def freeze_batchnorm(module: nn.Module) -> None:
 class Images(torch.utils.data.Dataset):
     """(image tensor in [0,1] at the model's view size, label 1 = AI) from fetched folders."""
 
-    def __init__(self, dirs: list[Path], per_class: int, kind: str, train: bool, seed: int):
-        rng = random.Random(seed)
+    def __init__(self, dirs: list[Path], per_class: int, kind: str, train: bool, seed: int,
+                 edit_share: float = 0.0, condition: str = "original", items: list | None = None):
+        """train: random condition per image (an everyday edit with probability edit_share,
+        else original / jpeg75 / social) and random flips/views. Not train: the fixed
+        `condition`, seeded per image so every evaluation sees the same pixels."""
         self.items: list[tuple[Path, int]] = []
-        for d in dirs:
-            for label, sub in ((1, "ai"), (0, "real")):
-                paths = collect_images(d / sub)
-                rng.shuffle(paths)
-                self.items += [(p, label) for p in paths[:per_class]]
+        if items is not None:
+            self.items = list(items)
+        else:
+            rng = random.Random(seed)
+            for d in dirs:
+                for label, sub in ((1, "ai"), (0, "real")):
+                    paths = collect_images(d / sub)
+                    rng.shuffle(paths)
+                    self.items += [(p, label) for p in paths[:per_class]]
         if not self.items:
             sys.exit(f"No images under {dirs}")
-        self.kind, self.train = kind, train
+        self.kind, self.train, self.edit_share, self.condition = kind, train, edit_share, condition
 
     def __len__(self) -> int:
         return len(self.items)
@@ -165,9 +197,12 @@ class Images(torch.utils.data.Dataset):
         path, label = self.items[i]
         image = Image.open(path).convert("RGB")
         if self.train:
-            image = degrade(image, random.choice(CONDITIONS))
+            pool = EDIT_CONDITIONS if random.random() < self.edit_share else CONDITIONS
+            image = degrade(image, random.choice(pool), random.getrandbits(32))
             if random.random() < 0.5:
                 image = image.transpose(Image.FLIP_LEFT_RIGHT)
+        elif self.condition != "original":
+            image = degrade(image, self.condition, condition_seed(path, self.condition))
         image = app_normalize(image)
         if self.kind == "commfor":
             view = commfor_view(image)
@@ -230,6 +265,92 @@ def evaluate(model: nn.Module, loader, device, eps_list: list[float], amp: bool)
     return out
 
 
+def jitter(delta: torch.Tensor, min_scale: float = 0.85) -> torch.Tensor:
+    """Random crop of 85-100% of a perturbation, resized back: where a fixed pattern lands
+    after a repost, crop or screenshot (as tools/adv_eval.py random_geometry)."""
+    size = delta.shape[-1]
+    crop = max(8, int(size * (min_scale + (1 - min_scale) * random.random())))
+    top, left = random.randint(0, size - crop), random.randint(0, size - crop)
+    return F.interpolate(delta[:, :, top : top + crop, left : left + crop], size=delta.shape[-2:],
+                         mode="bilinear", align_corners=False)
+
+
+def fit_universal(model: nn.Module, images: torch.Tensor, labels: torch.Tensor, eps: float, epochs: int,
+                  batch: int, device, amp: bool) -> torch.Tensor:
+    """Fresh universal perturbations against the current model (validation attacker): one for
+    the AI images (push toward real) and one for the real images (push toward AI), each by
+    minibatch sign-ascent on BCE through random crops/rescales. Returns (2, 3, H, W):
+    index 1 for AI images, 0 for real."""
+    deltas = torch.zeros(2, 3, *images.shape[-2:], device=device)
+    alpha = eps / 8
+    model.eval()
+    for _ in range(epochs):
+        order = torch.randperm(len(images))
+        for i in range(0, len(images), batch):
+            idx = order[i : i + batch]
+            x, y = images[idx].to(device), labels[idx].to(device)
+            d = deltas.clone().requires_grad_(True)
+            per_image = d[y.long()]
+            adv = (x + torch.cat([jitter(per_image[j : j + 1]) for j in range(len(x))])).clamp(0, 1)
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                logit = model(adv).float()
+            grad, = torch.autograd.grad(F.binary_cross_entropy_with_logits(logit, y), d)
+            deltas = (deltas + alpha * grad.sign()).clamp(-eps, eps).detach()
+    return deltas
+
+
+def stack(dataset) -> tuple[torch.Tensor, torch.Tensor]:
+    xs, ys = zip(*(dataset[i] for i in range(len(dataset))))
+    return torch.stack(xs), torch.stack(ys)
+
+
+def evaluate_phase3(model: nn.Module, val_set: "Images", edit_sets: dict, device, eps: float, amp: bool,
+                    batch: int, uap_epochs: int) -> dict:
+    """Clean AUC/accuracy, AUC under each validation edit, and accuracy of the other half of the
+    validation images under a fresh universal perturbation fit on the first half."""
+    model.eval()
+
+    def scores_of(dataset) -> tuple[np.ndarray, np.ndarray]:
+        loader = torch.utils.data.DataLoader(dataset, batch_size=batch, num_workers=0)
+        s, l = [], []
+        for x, y in loader:
+            with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                s += model(x.to(device)).float().cpu().tolist()
+            l += y.tolist()
+        return np.array(l), np.array(s)
+
+    labels, scores = scores_of(val_set)
+    out = {"clean_auc": roc_auc(labels, scores), "clean_acc": float(((scores > 0) == labels).mean()), "n": len(labels)}
+    edit_aucs = {}
+    for name, dataset in edit_sets.items():
+        l, s = scores_of(dataset)
+        edit_aucs[name] = roc_auc(l, s)
+    out["edit_auc"] = edit_aucs
+    valid = [v for v in edit_aucs.values() if v is not None]
+    out["edit_auc_mean"] = float(np.mean(valid)) if valid else None
+    out["edit_auc_min"] = float(np.min(valid)) if valid else None
+
+    x, y = stack(val_set)
+    half = len(x) // 2
+    deltas = fit_universal(model, x[:half], y[:half], eps, uap_epochs, batch, device, amp)
+    test_x, test_y = x[half:].to(device), y[half:].to(device)
+    with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+        clean_logit = model(test_x).float()
+        adv_logit = model((test_x + deltas[test_y.long()]).clamp(0, 1)).float()
+    # Robust = right on the clean image AND under the pattern, so a model that gets an image
+    # wrong either way (or a degenerate constant model) can't score as robust.
+    robust = ((clean_logit > 0).float() == test_y) & ((adv_logit > 0).float() == test_y)
+    out[f"uap_robust_acc_{eps * 255:g}"] = float(robust.float().mean())
+    return out
+
+
+def selection_score(objective: str, metrics: dict, eps_255: float) -> float:
+    """What the Phase 3 objectives maximize among eligible checkpoints."""
+    edited = metrics.get("edit_auc_mean") or 0.0
+    universal = metrics[f"uap_robust_acc_{eps_255:g}"]
+    return {"aug": edited, "uat": universal, "aug+uat": (edited + universal) / 2}[objective]
+
+
 MODEL_DEFAULTS = {  # lr, epochs, batch
     "commfor": (2e-5, 6, 32),
     "bundled": (1e-5, 4, 16),
@@ -257,8 +378,16 @@ def main() -> None:
     parser.add_argument("--val-data", type=Path, nargs="+")
     parser.add_argument("--per-class", type=int, default=3000, help="Training images per class per dataset")
     parser.add_argument("--val-per-class", type=int, default=150)
-    parser.add_argument("--objective", choices=["trades", "pgd-at"], default="trades",
-                        help="TRADES (clean CE + beta * KL(clean || adv)) or PGD-AT (CE on attacked images)")
+    parser.add_argument("--objective", choices=["trades", "pgd-at", *PHASE3_OBJECTIVES], default="trades",
+                        help="Phase 3: aug, uat, aug+uat. Phase 2b: TRADES (clean CE + beta * KL(clean || adv)) "
+                             "or PGD-AT (CE on attacked images)")
+    parser.add_argument("--edit-share", type=float, default=0.6,
+                        help="aug objectives: share of training images given a random everyday edit")
+    parser.add_argument("--uat-weight", type=float, default=1.0, help="uat objectives: weight of the perturbed loss")
+    parser.add_argument("--uat-step", type=float, default=0.25,
+                        help="uat objectives: universal perturbation step, as a fraction of the current eps")
+    parser.add_argument("--val-uap-epochs", type=int, default=3,
+                        help="Phase 3 validation: epochs to fit the fresh universal perturbation")
     parser.add_argument("--beta", type=float, default=3.0, help="TRADES robustness weight (after the ramp)")
     parser.add_argument("--beta-ramp-epochs", type=float, default=2.0, help="Linear ramp of beta from 0")
     parser.add_argument("--eps-ramp-epochs", type=float, default=1.0, help="Linear ramp of the training eps from 0")
@@ -268,7 +397,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=None, help="Default: 32 commfor, 16 bundled")
     parser.add_argument("--lr", type=float, default=None, help="Default: 2e-5 commfor, 1e-5 bundled")
     parser.add_argument("--warmup", type=float, default=0.05, help="Share of steps with linear LR warmup")
-    parser.add_argument("--eps", type=float, default=4.0, help="L-inf budget in /255 (training and selection)")
+    parser.add_argument("--eps", type=float, default=None,
+                        help="L-inf budget in /255 (training and selection). Default 8 for Phase 3 "
+                             "(universal), 4 for Phase 2b (per image)")
     parser.add_argument("--train-steps", type=int, default=5,
                         help="PGD steps when crafting training examples (step size = current eps / 4)")
     parser.add_argument("--eval-eps", default="2,4", help="Budgets (/255) for validation robust accuracy")
@@ -283,6 +414,11 @@ def main() -> None:
     parser.add_argument("--push-to-hub", default=None, help="Private HF model repo to upload to, e.g. you/genned-robust")
     parser.add_argument("--dry-run", action="store_true", help="Random-init models + synthetic images, CPU-friendly")
     args = parser.parse_args()
+    phase3 = args.objective in PHASE3_OBJECTIVES
+    uses_aug = args.objective in ("aug", "aug+uat")
+    uses_uat = args.objective in ("uat", "aug+uat")
+    if args.eps is None:
+        args.eps = 8.0 if phase3 else 4.0
 
     torch.manual_seed(args.seed)
     random.seed(args.seed)
@@ -294,7 +430,7 @@ def main() -> None:
     epochs = args.epochs or epochs_default
     batch = args.batch_size or batch_default
     eval_eps = sorted({float(e) for e in args.eval_eps.split(",")} | {args.eps})
-    key_name = f"robust_acc_{args.eps:g}"
+    key_name = f"uap_robust_acc_{args.eps:g}" if phase3 else f"robust_acc_{args.eps:g}"
     suffix = f"-{args.tag}" if args.tag else ""
     args.out.mkdir(parents=True, exist_ok=True)
 
@@ -307,8 +443,12 @@ def main() -> None:
 
     net = build_commfor(args.dry_run) if args.model == "commfor" else build_bundled(args.dry_run)
     model = Detector(net, args.model).to(device)
-    train_set = Images(args.train_data, args.per_class, args.model, train=True, seed=args.seed)
+    train_set = Images(args.train_data, args.per_class, args.model, train=True, seed=args.seed,
+                       edit_share=args.edit_share if uses_aug else 0.0)
     val_set = Images(args.val_data, args.val_per_class, args.model, train=False, seed=args.seed + 1)
+    # Same validation images under each edit (fixed per-image seeds), for the edited AUC.
+    edit_sets = {e: Images([], 0, args.model, train=False, seed=0, condition=e, items=val_set.items)
+                 for e in VAL_EDITS} if phase3 else {}
     train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch, shuffle=True, drop_last=True,
                                                num_workers=args.workers, pin_memory=amp)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch, num_workers=args.workers)
@@ -334,9 +474,18 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_factor)
     scaler = torch.amp.GradScaler(device.type, enabled=amp)
 
-    base = evaluate(model, val_loader, device, eval_eps, amp)
+    def validate() -> dict:
+        if phase3:
+            return evaluate_phase3(model, val_set, edit_sets, device, args.eps / 255, amp, batch, args.val_uap_epochs)
+        return evaluate(model, val_loader, device, eval_eps, amp)
+
+    base = validate()
     print(f"start (as shipped): {base}", flush=True)
-    log = {"recipe": RECIPE_VERSION, "model": args.model, "objective": args.objective, "beta": args.beta,
+    view = next(iter(train_loader))[0].shape[-2:]
+    deltas = torch.zeros(2, 3, *view, device=device)  # uat: index 1 for AI images, 0 for real
+    log = {"recipe": RECIPE_VERSION if phase3 else PHASE2B_RECIPE, "model": args.model,
+           "objective": args.objective, "beta": args.beta, "edit_share": args.edit_share if uses_aug else 0.0,
+           "uat_weight": args.uat_weight if uses_uat else None, "uat_step": args.uat_step if uses_uat else None,
            "eps_255": args.eps,
            "beta_ramp_epochs": args.beta_ramp_epochs, "eps_ramp_epochs": args.eps_ramp_epochs,
            "train_steps": args.train_steps, "lr": lr, "epochs": epochs, "batch": batch,
@@ -354,36 +503,64 @@ def main() -> None:
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             cur_eps = args.eps / 255 * ramp(step, args.eps_ramp_epochs)
             cur_beta = args.beta * ramp(step, args.beta_ramp_epochs)
-            model.eval()  # craft the attack with frozen layers
-            if cur_eps <= 0:
-                adv = x
-            elif args.objective == "trades":
-                with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-                    clean_for_attack = model(x).float()
-                adv = attack(model, x, y, cur_eps, cur_eps / 4, args.train_steps, amp, clean_logit=clean_for_attack)
+            if phase3:
+                model.train()
+                freeze_batchnorm(model)
+                d = deltas.clone().requires_grad_(True)
+                if uses_uat:
+                    per_image = d[y.long()]
+                    adv = (x + torch.cat([jitter(per_image[j : j + 1]) for j in range(len(x))])).clamp(0, 1)
+                    batch_in = torch.cat([x, adv])
+                else:
+                    batch_in = x
+                with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                    logits = model(batch_in).float()
+                clean_logit = logits[: len(x)]
+                adv_logit = logits[len(x):] if uses_uat else clean_logit
+                clean_loss = F.binary_cross_entropy_with_logits(clean_logit, y)
+                robust_loss = F.binary_cross_entropy_with_logits(adv_logit, y) if uses_uat else clean_loss
+                loss = clean_loss + (args.uat_weight * robust_loss if uses_uat else 0.0)
+                optimizer.zero_grad(set_to_none=True)
+                scaler.scale(loss).backward()
+                if uses_uat and d.grad is not None and torch.isfinite(d.grad).all() and cur_eps > 0:
+                    # The perturbations ascend the same loss the model descends.
+                    deltas = (deltas + args.uat_step * cur_eps * d.grad.sign()).clamp(-cur_eps, cur_eps).detach()
+                scaler.step(optimizer)
+                scale_before = scaler.get_scale()
+                scaler.update()
+                if scaler.get_scale() >= scale_before:
+                    scheduler.step()
             else:
-                n_adv = int(round(args.adv_fraction * len(x)))
-                adv = torch.cat([attack(model, x[:n_adv], y[:n_adv], cur_eps, cur_eps / 4, args.train_steps, amp),
-                                 x[n_adv:]])
-            model.train()
-            freeze_batchnorm(model)
-            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-                logits = model(torch.cat([x, adv])).float()
-            clean_logit, adv_logit = logits[: len(x)], logits[len(x):]
-            clean_loss = F.binary_cross_entropy_with_logits(clean_logit, y)
-            if args.objective == "trades":
-                robust_loss = binary_kl(clean_logit, adv_logit).mean()
-                loss = clean_loss + cur_beta * robust_loss
-            else:
-                robust_loss = F.binary_cross_entropy_with_logits(adv_logit, y)
-                loss = robust_loss
-            optimizer.zero_grad(set_to_none=True)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scale_before = scaler.get_scale()
-            scaler.update()
-            if scaler.get_scale() >= scale_before:  # AMP took the step: advance the schedule
-                scheduler.step()
+                model.eval()  # craft the attack with frozen layers
+                if cur_eps <= 0:
+                    adv = x
+                elif args.objective == "trades":
+                    with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                        clean_for_attack = model(x).float()
+                    adv = attack(model, x, y, cur_eps, cur_eps / 4, args.train_steps, amp, clean_logit=clean_for_attack)
+                else:
+                    n_adv = int(round(args.adv_fraction * len(x)))
+                    adv = torch.cat([attack(model, x[:n_adv], y[:n_adv], cur_eps, cur_eps / 4, args.train_steps, amp),
+                                     x[n_adv:]])
+                model.train()
+                freeze_batchnorm(model)
+                with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                    logits = model(torch.cat([x, adv])).float()
+                clean_logit, adv_logit = logits[: len(x)], logits[len(x):]
+                clean_loss = F.binary_cross_entropy_with_logits(clean_logit, y)
+                if args.objective == "trades":
+                    robust_loss = binary_kl(clean_logit, adv_logit).mean()
+                    loss = clean_loss + cur_beta * robust_loss
+                else:
+                    robust_loss = F.binary_cross_entropy_with_logits(adv_logit, y)
+                    loss = robust_loss
+                optimizer.zero_grad(set_to_none=True)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scale_before = scaler.get_scale()
+                scaler.update()
+                if scaler.get_scale() >= scale_before:  # AMP took the step: advance the schedule
+                    scheduler.step()
             step += 1
             since += 1
             sums["loss"] += loss.item()
@@ -399,7 +576,7 @@ def main() -> None:
             if step % eval_every != 0 and step != total_steps:
                 continue
 
-            metrics = evaluate(model, val_loader, device, eval_eps, amp)
+            metrics = validate()
             train_avg = {f"train_{k}": v / max(1, since) for k, v in sums.items()}
             sums = {k: 0.0 for k in sums}
             since = 0
@@ -407,13 +584,22 @@ def main() -> None:
             record = {"step": step, "epoch": round(step / steps_per_epoch, 2), "eps_255": round(cur_eps * 255, 3),
                       "beta": round(cur_beta, 3), "eligible": eligible, **metrics, **train_avg}
             log["evaluations"].append(record)
-            print(f"validation @ epoch {record['epoch']}: clean AUC {metrics['clean_auc']:.3f} "
-                  f"(start {base['clean_auc']:.3f}), clean acc {metrics['clean_acc']:.1%}, "
-                  f"robust @2/255 {metrics.get('robust_acc_2', float('nan')):.1%}, "
-                  f"@{args.eps:g}/255 {metrics[key_name]:.1%} - {'eligible' if eligible else 'NOT eligible'}",
-                  flush=True)
-            if eligible and metrics[key_name] > best_robust:
-                best_robust = metrics[key_name]
+            if phase3:
+                print(f"validation @ epoch {record['epoch']}: clean AUC {metrics['clean_auc']:.3f} "
+                      f"(start {base['clean_auc']:.3f}), clean acc {metrics['clean_acc']:.1%}, edited AUC mean "
+                      f"{metrics['edit_auc_mean']:.3f} / min {metrics['edit_auc_min']:.3f} (start "
+                      f"{base['edit_auc_mean']:.3f} / {base['edit_auc_min']:.3f}), universal robust acc "
+                      f"@{args.eps:g}/255 {metrics[key_name]:.1%} (start {base[key_name]:.1%}) - "
+                      f"{'eligible' if eligible else 'NOT eligible'}", flush=True)
+            else:
+                print(f"validation @ epoch {record['epoch']}: clean AUC {metrics['clean_auc']:.3f} "
+                      f"(start {base['clean_auc']:.3f}), clean acc {metrics['clean_acc']:.1%}, "
+                      f"robust @2/255 {metrics.get('robust_acc_2', float('nan')):.1%}, "
+                      f"@{args.eps:g}/255 {metrics[key_name]:.1%} - {'eligible' if eligible else 'NOT eligible'}",
+                      flush=True)
+            score = selection_score(args.objective, metrics, args.eps) if phase3 else metrics[key_name]
+            if eligible and score > best_robust:
+                best_robust = score
                 best_state = {k: v.detach().cpu().clone() for k, v in model.net.state_dict().items()}
                 log["selected"], log["meets_clean_gate"] = record, True
             if collapsed:

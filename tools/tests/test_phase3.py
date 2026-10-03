@@ -1,0 +1,112 @@
+"""Unit tests for the Phase 3 tooling (no downloads, CPU only).
+
+Run: python -m unittest discover -s tools/tests
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import evaluate  # noqa: E402
+
+
+def sample_image(seed: int = 0, size=(320, 240)) -> Image.Image:
+    rng = np.random.default_rng(seed)
+    array = (rng.random((size[1], size[0], 3)) * 255).astype(np.uint8)
+    return Image.fromarray(array)
+
+
+class EditConditionsTest(unittest.TestCase):
+    def test_every_condition_runs_and_is_repeatable(self):
+        image = sample_image()
+        for condition in evaluate.ALL_CONDITIONS:
+            seed = evaluate.condition_seed(Path("img.png"), condition)
+            a = np.asarray(evaluate.degrade(image, condition, seed))
+            b = np.asarray(evaluate.degrade(image, condition, seed))
+            self.assertTrue(np.array_equal(a, b), condition)
+            self.assertEqual(a.shape[2], 3, condition)
+
+    def test_standard_conditions_unchanged(self):
+        # Other tools iterate over CONDITIONS; the edits must stay opt-in.
+        self.assertEqual(evaluate.CONDITIONS, ("original", "jpeg75", "social"))
+
+    def test_noise_strength_orders(self):
+        image = sample_image(1)
+        base = np.asarray(image, dtype=np.float32)
+        diffs = [np.abs(np.asarray(evaluate.degrade(image, c, 7), dtype=np.float32) - base).mean()
+                 for c in ("noise2", "noise4", "noise8")]
+        self.assertLess(diffs[0], diffs[1])
+        self.assertLess(diffs[1], diffs[2])
+
+    def test_rotate_crop_has_no_empty_corners(self):
+        image = Image.new("RGB", (300, 200), (200, 100, 50))
+        out = np.asarray(evaluate._rotate_crop(image, 3.0))
+        corners = out[[0, 0, -1, -1], [0, -1, 0, -1]]
+        self.assertTrue((corners.sum(axis=1) > 0).all())
+
+    def test_seed_is_stable_across_processes(self):
+        # zlib.crc32, not Python's randomized hash().
+        self.assertEqual(evaluate.condition_seed(Path("a/b.png"), "noise4"),
+                         evaluate.condition_seed(Path("c/b.png"), "noise4"))
+
+
+class UniversalTrainingTest(unittest.TestCase):
+    def setUp(self):
+        import torch
+
+        import adv_finetune
+
+        self.torch, self.ft = torch, adv_finetune
+        torch.manual_seed(0)
+
+    def tiny_model(self):
+        torch = self.torch
+
+        class Tiny(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.conv = torch.nn.Conv2d(3, 4, 4, 4)
+                self.head = torch.nn.Linear(4 * 8 * 8, 1)
+
+            def forward(self, x):
+                return self.head(self.conv(x).flatten(1)).reshape(-1)
+
+        return Tiny()
+
+    def test_fit_universal_stays_in_budget_and_hurts_the_model(self):
+        torch = self.torch
+        model = self.tiny_model().eval()
+        x = torch.rand(16, 3, 32, 32)
+        with torch.no_grad():
+            y = (model(x) > 0).float()  # labels the model gets right
+        eps = 8 / 255
+        deltas = self.ft.fit_universal(model, x, y, eps, epochs=8, batch=4, device=torch.device("cpu"), amp=False)
+        self.assertEqual(tuple(deltas.shape), (2, 3, 32, 32))
+        self.assertLessEqual(float(deltas.abs().max()), eps + 1e-6)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits
+        with torch.no_grad():
+            clean = loss(model(x), y)
+            attacked = loss(model((x + deltas[y.long()]).clamp(0, 1)), y)
+        self.assertGreater(float(attacked), float(clean))
+
+    def test_jitter_keeps_shape(self):
+        torch = self.torch
+        delta = torch.rand(1, 3, 40, 40)
+        self.assertEqual(tuple(self.ft.jitter(delta).shape), (1, 3, 40, 40))
+
+    def test_selection_score(self):
+        metrics = {"edit_auc_mean": 0.8, "uap_robust_acc_8": 0.4}
+        self.assertAlmostEqual(self.ft.selection_score("aug", metrics, 8.0), 0.8)
+        self.assertAlmostEqual(self.ft.selection_score("uat", metrics, 8.0), 0.4)
+        self.assertAlmostEqual(self.ft.selection_score("aug+uat", metrics, 8.0), 0.6)
+
+
+if __name__ == "__main__":
+    unittest.main()
