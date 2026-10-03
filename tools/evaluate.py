@@ -35,6 +35,24 @@ Conditions (applied to each image before preprocessing):
     social    what a post seen through Instagram goes through: long edge
               downscaled to <=1080, then JPEG q75 (platform re-upload)
 
+Everyday edits (EDIT_CONDITIONS): what people do to an image before reposting it, or
+what simple "beat AI detectors" tools do. They need no knowledge of the model:
+    noise2 / noise4 / noise8   Gaussian pixel noise, sigma 2 / 4 / 8 (of 255)
+    grain        monochrome film grain (sigma 6, softened)
+    blur         Gaussian blur, radius 1.5
+    sharpen      unsharp mask (radius 2, 150%)
+    filter       Instagram-style colour filter: saturation x1.3, contrast x1.15,
+                 brightness x1.05
+    rescale      downscale to half size, then upscale back (bicubic)
+    crop80       keep 80% of width and height (off-centre)
+    rotate3      rotate 3 degrees, cropped back to a rectangle without borders
+    webp50       re-encoded as WebP quality 50
+    screenshot   shown on a 1080-wide phone screen with status and navigation bars,
+                 saved as PNG (a screenshot that is then shared)
+    chain_filter filter -> rescale -> social
+    chain_shot   noise4 -> screenshot -> social
+Random edits are seeded per image, so every run sees the same pixels.
+
 Every condition then goes through the app's own normalization, exactly as
 ImageLoader does before the classifier ever sees the image: long edge capped at
 2048, re-encoded as JPEG quality 92.
@@ -65,12 +83,14 @@ import argparse
 import csv
 import io
 import json
+import math
 import sys
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 
 try:
     import onnxruntime as ort
@@ -118,7 +138,9 @@ def ensemble_score(primary_gap: float, commfor_logit: float, params: dict | None
     return ((primary_gap - e["mean_d"]) / e["std_d"] + (commfor_logit - e["mean_c"]) / e["std_c"]) / 2.0
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-CONDITIONS = ("original", "jpeg75", "social")
+EDIT_CONDITIONS = ("noise2", "noise4", "noise8", "grain", "blur", "sharpen", "filter", "rescale", "crop80",
+                   "rotate3", "webp50", "screenshot", "chain_filter", "chain_shot")
+CONDITIONS = ("original", "jpeg75", "social") + EDIT_CONDITIONS
 PREPROCESS_MODES = ("squash", "center_crop", "avg")
 BASE_MODES = ("squash", "center_crop")
 
@@ -139,21 +161,112 @@ def _jpeg(image: Image.Image, quality: int) -> Image.Image:
     return Image.open(buffer).convert("RGB")
 
 
-def degrade(image: Image.Image, condition: str) -> Image.Image:
+def _encode(image: Image.Image, fmt: str, **kwargs) -> Image.Image:
+    buffer = io.BytesIO()
+    image.save(buffer, format=fmt, **kwargs)
+    buffer.seek(0)
+    return Image.open(buffer).convert("RGB")
+
+
+def _noise(image: Image.Image, sigma: float, rng: np.random.Generator, mono: bool = False) -> Image.Image:
+    array = np.asarray(image, dtype=np.float32)
+    shape = array.shape[:2] + ((1,) if mono else (3,))
+    noisy = array + rng.normal(0.0, sigma, size=shape).astype(np.float32)
+    return Image.fromarray(np.clip(np.rint(noisy), 0, 255).astype(np.uint8))
+
+
+def _grain(image: Image.Image, rng: np.random.Generator) -> Image.Image:
+    field = rng.normal(0.0, 6.0, size=(image.height, image.width)).astype(np.float32)
+    soft = np.asarray(Image.fromarray(np.clip(field + 128, 0, 255).astype(np.uint8)).filter(
+        ImageFilter.GaussianBlur(0.7)), dtype=np.float32) - 128
+    array = np.asarray(image, dtype=np.float32) + soft[..., None]
+    return Image.fromarray(np.clip(np.rint(array), 0, 255).astype(np.uint8))
+
+
+def _rotate_crop(image: Image.Image, degrees: float) -> Image.Image:
+    """Rotate, then crop the largest centred rectangle with the same aspect ratio and no
+    empty corners."""
+    w, h = image.size
+    a = math.radians(abs(degrees))
+    factor = 1.0 / (math.cos(a) + math.sin(a) * max(w / h, h / w))
+    rotated = image.rotate(degrees, resample=Image.BICUBIC)
+    cw, ch = max(1, int(w * factor)), max(1, int(h * factor))
+    left, top = (w - cw) // 2, (h - ch) // 2
+    return rotated.crop((left, top, left + cw, top + ch))
+
+
+def _screenshot(image: Image.Image) -> Image.Image:
+    """The image displayed full-width on a 1080 x 2400 phone screen between a status bar
+    and app/navigation chrome, captured as PNG."""
+    screen_w, top_bar, bottom_bar = 1080, 140, 260
+    scale = screen_w / image.width
+    shown = image.resize((screen_w, max(1, round(image.height * scale))), Image.BILINEAR)
+    shown_h = min(shown.height, 2400 - top_bar - bottom_bar)
+    shown = shown.crop((0, 0, screen_w, shown_h))
+    canvas = Image.new("RGB", (screen_w, top_bar + shown_h + bottom_bar), (250, 250, 250))
+    canvas.paste((20, 20, 20), (0, 0, screen_w, 60))  # status bar
+    canvas.paste(shown, (0, top_bar))
+    canvas.paste((235, 235, 235), (0, top_bar + shown_h + 120, screen_w, canvas.height))  # nav bar
+    return _encode(canvas, "PNG")
+
+
+def _social(image: Image.Image) -> Image.Image:
+    long_edge = max(image.size)
+    if long_edge > 1080:
+        scale = 1080 / long_edge
+        image = image.resize(
+            (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
+            Image.BILINEAR,
+        )
+    return _jpeg(image, 75)
+
+
+def degrade(image: Image.Image, condition: str, seed: int = 0) -> Image.Image:
+    """Applies one benchmark condition. `seed` makes the random edits repeatable per image
+    (callers pass condition_seed(path))."""
+    rng = np.random.default_rng(seed)
     if condition == "original":
         return image
     if condition == "jpeg75":
         return _jpeg(image, 75)
     if condition == "social":
-        long_edge = max(image.size)
-        if long_edge > 1080:
-            scale = 1080 / long_edge
-            image = image.resize(
-                (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
-                Image.BILINEAR,
-            )
-        return _jpeg(image, 75)
+        return _social(image)
+    if condition in ("noise2", "noise4", "noise8"):
+        return _noise(image, float(condition[5:]), rng)
+    if condition == "grain":
+        return _grain(image, rng)
+    if condition == "blur":
+        return image.filter(ImageFilter.GaussianBlur(1.5))
+    if condition == "sharpen":
+        return image.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+    if condition == "filter":
+        image = ImageEnhance.Color(image).enhance(1.3)
+        image = ImageEnhance.Contrast(image).enhance(1.15)
+        return ImageEnhance.Brightness(image).enhance(1.05)
+    if condition == "rescale":
+        half = image.resize((max(1, image.width // 2), max(1, image.height // 2)), Image.BILINEAR)
+        return half.resize(image.size, Image.BICUBIC)
+    if condition == "crop80":
+        cw, ch = max(1, round(image.width * 0.8)), max(1, round(image.height * 0.8))
+        left = int(rng.integers(0, image.width - cw + 1))
+        top = int(rng.integers(0, image.height - ch + 1))
+        return image.crop((left, top, left + cw, top + ch))
+    if condition == "rotate3":
+        return _rotate_crop(image, 3.0 if rng.random() < 0.5 else -3.0)
+    if condition == "webp50":
+        return _encode(image, "WEBP", quality=50)
+    if condition == "screenshot":
+        return _screenshot(image)
+    if condition == "chain_filter":
+        return _social(degrade(degrade(image, "filter", seed), "rescale", seed))
+    if condition == "chain_shot":
+        return _social(_screenshot(degrade(image, "noise4", seed)))
     raise ValueError(f"Unknown condition: {condition}")
+
+
+def condition_seed(path: Path, condition: str) -> int:
+    """Stable per-image, per-condition seed (independent of Python's hash randomization)."""
+    return zlib.crc32(f"{path.name}|{condition}".encode())
 
 
 def app_normalize(image: Image.Image) -> Image.Image:
@@ -249,6 +362,7 @@ def run_inference(session: "ort.InferenceSession", tensor: np.ndarray) -> float:
 
 
 COMMFOR_MODEL_NAME = "commfor-224 (app onnx)"
+ENSEMBLE_MODEL_NAME = "app ensemble"
 COMMFOR_SIZE = 224
 COMMFOR_RESIZE = 256
 
@@ -303,11 +417,15 @@ def evaluate_all(
     slope: float = 1.0,
     intercept: float = 0.0,
     commfor: "CommforOnnx | None" = None,
+    ensemble: dict | None = None,
 ) -> dict[tuple[str, str], list[Prediction]]:
     """Runs every (condition, preprocess) combination, decoding each image once.
 
     With `commfor`, also scores the bundled Community Forensics ONNX on the same degraded
-    image under the key (condition, "commfor") - raw sigmoid, for ensemble fitting."""
+    image under the key (condition, "commfor") - raw sigmoid, for ensemble fitting.
+    With `commfor` and `ensemble` (APP_ENSEMBLE-shaped constants), also scores the app's
+    shipped ensemble under (condition, "ensemble"): both bundled views averaged, combined
+    with Community Forensics, photo-calibrated - exactly EnsembleConfig."""
     session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
 
     ai_dir = dataset_dir / "ai"
@@ -325,6 +443,10 @@ def evaluate_all(
     results: dict[tuple[str, str], list[Prediction]] = {(c, m): [] for c in conditions for m in modes}
     if commfor is not None:
         results.update({(c, "commfor"): [] for c in conditions})
+    if ensemble is not None:
+        if commfor is None:
+            raise ValueError("the ensemble needs the Community Forensics model")
+        results.update({(c, "ensemble"): [] for c in conditions})
     skipped = 0
     for index, (path, is_ai, generator) in enumerate(labeled, start=1):
         try:
@@ -334,8 +456,9 @@ def evaluate_all(
             skipped += 1
             continue
         for condition in conditions:
-            degraded = app_normalize(degrade(image, condition))
-            needed = {m for m in modes if m in BASE_MODES} | (set(BASE_MODES) if "avg" in modes else set())
+            degraded = app_normalize(degrade(image, condition, condition_seed(path, condition)))
+            needed = ({m for m in modes if m in BASE_MODES}
+                      | (set(BASE_MODES) if "avg" in modes or ensemble is not None else set()))
             diffs = {m: run_inference(session, to_tensor(to_model_input(degraded, m))) for m in needed}
             if "avg" in modes:
                 diffs["avg"] = (diffs["squash"] + diffs["center_crop"]) / 2.0
@@ -347,6 +470,11 @@ def evaluate_all(
             if commfor is not None:
                 c = commfor.gap(degraded)
                 results[(condition, "commfor")].append(Prediction(path, is_ai, calibrated_probability(c), generator, c))
+                if ensemble is not None:
+                    s = ensemble_score((diffs["squash"] + diffs["center_crop"]) / 2.0, c, ensemble)
+                    slope_e, intercept_e = ensemble["photo"]
+                    results[(condition, "ensemble")].append(
+                        Prediction(path, is_ai, calibrated_probability(s, slope_e, intercept_e), generator, s))
         if index % 100 == 0:
             print(f"  {index}/{len(labeled)} images", file=sys.stderr)
     if skipped:
@@ -501,6 +629,10 @@ def main() -> None:
     parser.add_argument("--model-name", default=None, help="Label for this configuration in reports")
     parser.add_argument("--commfor-onnx", type=Path, default=None,
                         help="Also score this Community Forensics ONNX (the app's second ensemble model)")
+    parser.add_argument("--ensemble", action="store_true",
+                        help="Also score the app's shipped ensemble (needs --commfor-onnx)")
+    parser.add_argument("--ensemble-params", type=Path, default=None,
+                        help="ensemble-params.json for a candidate model set (default: APP_ENSEMBLE)")
     parser.add_argument("--scores-csv", type=Path, default=None, help="Append per-image logit differences here")
     parser.add_argument("--calibration", default=None, help="SLOPE,INTERCEPT as in ModelConfig.interpretOutput, or 'app' for the shipped values")
     args = parser.parse_args()
@@ -521,6 +653,8 @@ def main() -> None:
     for m in modes:
         if m not in PREPROCESS_MODES:
             parser.error(f"unknown preprocess mode {m!r}; choose from {PREPROCESS_MODES}")
+    if args.ensemble and not args.commfor_onnx:
+        parser.error("--ensemble needs --commfor-onnx")
 
     if not args.model.exists():
         print(f"Model file not found: {args.model}", file=sys.stderr)
@@ -528,13 +662,21 @@ def main() -> None:
 
     dataset_name = args.dataset_name or args.dataset.resolve().name
     commfor = CommforOnnx(args.commfor_onnx) if args.commfor_onnx else None
-    results = evaluate_all(args.model, args.dataset, conditions, modes, slope, intercept, commfor)
+    ensemble = None
+    if args.ensemble:
+        ensemble = load_ensemble_params(args.ensemble_params) if args.ensemble_params else APP_ENSEMBLE
+    results = evaluate_all(args.model, args.dataset, conditions, modes, slope, intercept, commfor, ensemble)
     if args.json_dir:
         args.json_dir.mkdir(parents=True, exist_ok=True)
 
     def labels(mode: str) -> tuple[str | None, str]:
-        """(model name, preprocess) for a results key; the Community Forensics rows are their own model."""
-        return (COMMFOR_MODEL_NAME, "native") if mode == "commfor" else (args.model_name, mode)
+        """(model name, preprocess) for a results key; the Community Forensics and ensemble rows
+        are their own models."""
+        if mode == "commfor":
+            return COMMFOR_MODEL_NAME, "native"
+        if mode == "ensemble":
+            return ENSEMBLE_MODEL_NAME, "ensemble"
+        return args.model_name, mode
 
     for (condition, mode), predictions in results.items():
         model_name, preprocess_label = labels(mode)
@@ -547,7 +689,9 @@ def main() -> None:
                 "dataset": dataset_name,
                 "condition": condition,
                 "preprocess": preprocess_label,
-                "calibration": ({"slope": slope, "intercept": intercept}
+                "calibration": ({"slope": ensemble["photo"][0], "intercept": ensemble["photo"][1]}
+                                if mode == "ensemble"
+                                else {"slope": slope, "intercept": intercept}
                                 if args.calibration and mode != "commfor" else None),
                 "metrics": compute_metrics(predictions, args.threshold),
             }

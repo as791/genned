@@ -1,0 +1,38 @@
+name: Dataset probe
+
+# Prints a Hugging Face dataset's layout (splits, features, files, label value counts) so a
+# fetch preset can be written for it. Metadata only: no images are saved or uploaded.
+on:
+  workflow_dispatch:
+    inputs:
+      dataset:
+        description: Hugging Face dataset id
+        required: true
+      config:
+        description: Config name (optional)
+        default: ''
+      rows:
+        description: Rows to scan per split for value counts
+        default: '2000'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "datasets>=2.19,<5" "huggingface_hub>=0.23,<1" "pillow>=10,<12"
+      - name: Probe
+        env:
+          DATASET: ${{ inputs.dataset }}
+          CONFIG: ${{ inputs.config }}
+          ROWS: ${{ inputs.rows }}
+        run: |
+          python tools/probe_dataset.py "$DATASET" ${CONFIG:+--config "$CONFIG"} --rows "$ROWS" \
+            | tee probe.md
+          { echo '```'; cat probe.md; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
