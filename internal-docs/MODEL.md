@@ -591,6 +591,30 @@ Flux.2 is open weights. OpenFake's train split has Flux.2-klein-4B and -base-4B,
 Phase 3 training sees that family. The other gaps are proprietary generators, which
 are never trained on, so they stay true held-out tests.
 
+**Baseline: the shipped ensemble under attack**
+([run 37121346581](https://github.com/as791/genned/actions/runs/37121346581);
+60 AI + 60 real images attacked, 300 clean, 30 for Square; clean AUC 0.903, real shown
+HIGH 0.7%, AI shown LOW 11.3%):
+
+| Threat (8/255) | Evasion (AI shown LOW) | Framing (real shown HIGH) | Gate |
+|---|---|---|---|
+| White box, per image (FGSM, PGD with EOT) | 100% | 100% | reported |
+| **Universal pattern** (direct / after JPEG q75 / after a crop + rescale / both) | **75% / 70% / 68% / 58%** | 33% / 10% / 30% / 10% | ≤ 20%: **fails** |
+| **Transfer from open detectors** (MI-DI-FGSM on Community Forensics 384 + SigLIP + dima806; direct / after JPEG) | **98% / 93%** | 25% / 8% | ≤ 30%: **fails** |
+| Transfer from one of the app's models | 100% / 97% | – | reported |
+| Black box, Square Attack (200 queries; direct / after JPEG) | 80% / 57% | – | reported |
+
+At 4/255: universal-pattern evasion 58% / 53% / 35% / 37%, framing ≤ 15%; open-detector
+transfer 87% / 82%.
+
+- **Transfer from open detectors is the most serious realistic finding.** An attacker who
+  never runs Genned's models, only public ones, gets 93–98% of AI images shown LOW.
+  Generic "beat AI detectors" tools would likely work on Genned as well.
+- **One published pattern** turns about 70% of AI images LOW, and it survives JPEG and
+  cropping.
+- Universal adversarial training targets the pattern. Open-detector transfer is the
+  transferable side of the same weakness; its gate measures whether training helps.
+
 **Gates for a Phase 3 model** (held-out data only):
 1. Worst-case AI caught at 5% false alarms doesn't fall. An accuracy win needs ≥ +3
    points.
