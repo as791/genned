@@ -64,11 +64,11 @@ def main() -> None:
             f"| {pct(m['extreme_share'])} |"
         )
 
-    out.append("\n## Per generator (bundled: squash; candidates: native)\n")
+    out.append("\n## Per generator (bundled: squash; candidates: native; app ensemble: as shipped)\n")
     out.append("Share classified correctly at 0.5 (for `real`: share *not* flagged as AI).\n")
     for dataset, model in sorted({(r["dataset"], r["model"]) for r in results}, key=lambda k: (k[0], k[1] != BUNDLED, k[1])):
         rows = [r for r in results if r["dataset"] == dataset and r["model"] == model
-                and r["preprocess"] in ("squash", "native", "video5")]
+                and r["preprocess"] in ("squash", "native", "video5", "ensemble")]
         if not rows:
             continue
         generators = sorted({g for r in rows for g in r["metrics"]["per_generator"]},
@@ -87,7 +87,7 @@ def main() -> None:
     out.append("## Calibration (original, squash)\n")
     out.append("When the model says X%, how often is the image actually AI?\n")
     for r in results:
-        if r["condition"] not in ("original", "video") or r["preprocess"] not in ("squash", "native", "video5"):
+        if r["condition"] not in ("original", "video") or r["preprocess"] not in ("squash", "native", "video5", "ensemble"):
             continue
         out.append(f"### {r['dataset']} · {r['model']}\n")
         out.append("| Score bin | n | Mean score | Actually AI |")
