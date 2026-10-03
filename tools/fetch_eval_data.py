@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -82,6 +83,9 @@ def main() -> None:
     parser.add_argument("--image-col", default=None)
     parser.add_argument("--label-col", default=None)
     parser.add_argument("--generator-col", default=None)
+    parser.add_argument("--exclude-generators", default=None,
+                        help="Skip rows whose --generator-col value matches this regex (case-insensitive), e.g. "
+                             "generators whose images may not be used for training")
     parser.add_argument("--max-per-generator", type=int, default=None,
                         help="Cap AI images per generator, so a dataset with many generators (as a free-text "
                              "column) isn't dominated by its most common one")
@@ -173,6 +177,10 @@ def main() -> None:
     if args.max_per_generator:
         per_generator_quota = min(per_generator_quota, args.max_per_generator)
 
+    if args.exclude_generators and generator_col is None:
+        fail("--exclude-generators needs --generator-col.", features)
+    exclude = re.compile(args.exclude_generators, re.IGNORECASE) if args.exclude_generators else None
+
     ds = ds.cast_column(image_col, HFImage(decode=False)).shuffle(seed=args.seed, buffer_size=300)
 
     (args.out / "real").mkdir(parents=True, exist_ok=True)
@@ -184,6 +192,8 @@ def main() -> None:
         scanned += 1
         if scanned > args.max_scan:
             break
+        if exclude is not None and exclude.search(str(row[generator_col])):
+            continue
         label_is_ai = is_ai(row[label_col])
         generator = generator_of(row) if label_is_ai else "real"
         if generator_col is not None and generator_of(row).lower() == "real" and label_is_ai:
