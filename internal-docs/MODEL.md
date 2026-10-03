@@ -514,6 +514,86 @@ Caveats: MS-COCO (Defactify's real photos) is a very common training source, so
 Defactify numbers may be optimistic. What the second dataset's "real" class
 contains (photos only, or also artwork) hasn't been verified.
 
+### Phase 3: accuracy on newer generators and realistic robustness
+
+Phase 2 and 2b showed that per-image white-box attacks beat every affordable defense.
+Phase 3 targets the threats that are both realistic and fixable:
+- accuracy on generators the models have never seen;
+- everyday edits: noise, filters, rescaling, crops, screenshots, re-encoding;
+- universal patterns: one pattern, published once, that fools many images;
+- transfer from open detectors that aren't in the app.
+
+White-box per-image attacks are still measured and reported, but not gated.
+
+**Tools:**
+- `tools/evaluate.py --conditions edits`: 14 everyday edits, seeded per image.
+- `--ensemble` scores the app's shipped ensemble exactly.
+- `tools/edit_report.py` applies the gates.
+- The **Robustness eval** workflow runs one job per dataset.
+- `tools/adv_eval.py --attacks uap,transfer-ext` adds the universal-pattern and
+  outside-detector attacks.
+- `tools/adv_report.py` adds the by-threat table.
+- **OpenFake** (`ComplexDataLab/OpenFake`, core config) is the newer-generator
+  benchmark.
+  - Its test split holds 2025–26 generators: GPT-Image-1.5/2, Midjourney 7,
+    Flux.2-klein, Nano Banana Pro, Seedream 5, Z-Image, Recraft, frames from
+    Veo 3 / Sora 2, and more. Real images are ImageNet and DOCCI photos.
+  - Its train split holds older generators, so training on train and testing on
+    test measures generalization to newer ones.
+  - License: CC-BY-SA-4.0. Proprietary-generator subsets are non-commercial, so
+    they're used for evaluation only.
+
+**Baseline: the shipped ensemble under everyday edits**
+([run 37121345188](https://github.com/as791/genned/actions/runs/37121345188),
+[run 37121695956](https://github.com/as791/genned/actions/runs/37121695956);
+150 AI + 150 real images per dataset):
+
+| Dataset | Clean AUC | AI shown HIGH | AI shown LOW | Real shown HIGH | Edits that fail a gate |
+|---|---|---|---|---|---|
+| Defactify | 0.989 | 64.0% | 1.3% | 0.0% | noise8, grain, sharpen, webp50, chain_shot |
+| MJ/DALL·E/SD/NBP | 0.828 | 30.7% | 4.7% | 2.0% | noise2/4/8, grain, webp50, screenshot, chain_shot |
+| OpenFake (2025–26 generators) | 0.863 | 40.0% | 5.3% | 0.7% | grain, sharpen, webp50, screenshot, chain_shot |
+
+Worst cells (over the three datasets):
+
+| Edit | What goes wrong |
+|---|---|
+| webp50 (WebP quality 50) | **Real photos shown HIGH: 11.3% / 14.7% / 14.0%.** Ordinary re-encoding becomes a false accusation. |
+| grain (film grain) | AI shown HIGH falls 15–32 points; AI shown LOW up to 11.3%. The easiest evasion. |
+| sharpen | AI shown HIGH −21 points (Defactify); AI shown LOW up to 13.3% (OpenFake). |
+| chain_shot (noise → screenshot → repost) | AI shown LOW 16.7% (MJ set), 15.3% (OpenFake). |
+| screenshot | AI shown LOW 12.7% (MJ set), 10.0% (OpenFake). |
+| noise2/4 (MJ set) | Real shown HIGH 5.3–8.0%. |
+
+Blur, rescaling, cropping, small rotations, colour filters and the filter chain stay
+within the gates.
+
+On its own, Community Forensics catches almost none of the newest generators:
+Flux.2-klein 0/15, GPT-Image-2 0/5, Seedream 5 0/4, Midjourney 7 2/15.
+
+**Gates for a Phase 3 model** (held-out data only):
+1. Worst-case AI caught at 5% false alarms doesn't fall. An accuracy win needs ≥ +3
+   points.
+2. Real shown HIGH ≤ 5% and AI shown LOW ≤ 10%, unedited and under every edit.
+3. Video AUCs drop by at most 0.02.
+4. AI shown HIGH under any edit is at most 10 points below unedited.
+5. Universal pattern at 8/255 (direct, laundered, re-cropped): evasion and framing
+   ≤ 20%.
+6. Transfer from open detectors at 8/255 ≤ 30%.
+7. Per-image white-box attacks are reported, not gated.
+
+**Training** (`notebooks/robust_finetune_kaggle.ipynb`, `tools/adv_finetune.py
+--objective aug+uat`):
+- **Everyday-edit augmentation:** 60% of training images get a random edit.
+- **Universal adversarial training** at 8/255 (Shafahi et al. 2020): two shared
+  perturbations, AI→real and real→AI, ascend the loss the model descends, under
+  random crops and rescales.
+- **Validation:** clean AUC, AUC under six edits, and robustness to a *fresh*
+  universal pattern fit on held-out validation images.
+- **Data:** OpenFake train restricted to open-weights generators
+  (`--exclude-generators`), plus Defactify train.
+- **Safeguards:** the Phase 2b clean gate and collapse guard still apply.
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace
