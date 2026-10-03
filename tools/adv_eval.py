@@ -16,10 +16,21 @@ q92 re-encode is part of the forward pass (straight-through / BPDA for gradients
 * Real world: every adversarial image is also re-scored after Instagram-like laundering
   (JPEG q75) - perturbations that don't survive sharing matter less.
 
-Attacks: FGSM, PGD-Linf (random start, EOT over the defense's randomness), an adaptive
-PGD against the consistency check (it also minimizes the check's disagreement),
-transfer from a surrogate model (Community Forensics, so no gradients from the target),
-and Square Attack (score-based, query-only black box). Budgets: L-inf eps in /255.
+Attacks (--attacks; budgets are L-inf eps in /255):
+  fgsm          one-step white box
+  pgd           PGD-Linf with random start and EOT over the defense's randomness (plus an
+                adaptive PGD that also evades the consistency check, for that defense)
+  transfer      PGD on one of the app's own models only (the attacker knows one of two)
+  framing       PGD pushing real images to HIGH
+  square        Square Attack: score-based, query-only black box
+  uap           universal perturbation (Phase 3): ONE pattern per budget and goal, fit by
+                minibatch PGD on images disjoint from the test images (with random crops
+                and rescales so it survives reposting), then added unchanged to every
+                test image. Scored direct, laundered, and after a random crop/rescale.
+                This is the "publish one filter that beats Genned" threat.
+  transfer-ext  MI-DI-FGSM on an ensemble of open detectors that are NOT in the app
+                (--surrogates; tools/eval_candidates.py): what generic "beat AI
+                detectors" tools do, with no access to Genned at all
 
 Every defense wraps the detector chosen with --model: `ensemble` (default; the app as
 shipped: bundled + Community Forensics 224 with the shipped EnsembleConfig constants) or
@@ -85,6 +96,9 @@ MEAN_T = torch.tensor(MEAN).view(1, 3, 1, 1)
 STD_T = torch.tensor(STD).view(1, 3, 1, 1)
 
 
+ATTACKS = ("fgsm", "pgd", "transfer", "framing", "square", "uap", "transfer-ext")
+
+
 # --------------------------------------------------------------------------- data
 
 def square_380(image: Image.Image) -> torch.Tensor:
@@ -94,17 +108,25 @@ def square_380(image: Image.Image) -> torch.Tensor:
     return torch.from_numpy(np.asarray(image, dtype=np.float32) / 255.0).permute(2, 0, 1)
 
 
-def load_split(dirs: list[Path], per_class: int, seed: int) -> list[tuple[torch.Tensor, int, str]]:
-    """per_class AI + per_class real images, split evenly across datasets."""
+def select_paths(dirs: list[Path], per_class: int, seed: int,
+                 exclude: frozenset[Path] = frozenset()) -> list[tuple[Path, int, str]]:
+    """per_class AI + per_class real image paths, split evenly across datasets, skipping
+    `exclude` (so splits can be made disjoint)."""
     rng = np.random.default_rng(seed)
     items = []
     for d in dirs:
         for label, sub in ((1, "ai"), (0, "real")):
-            paths = collect_images(d / sub)
+            paths = [p for p in collect_images(d / sub) if p not in exclude]
             rng.shuffle(paths)
-            for p in paths[: max(1, per_class // len(dirs))]:
-                items.append((square_380(Image.open(p).convert("RGB")), label, d.name))
+            items += [(p, label, d.name) for p in paths[: max(1, per_class // len(dirs))]]
     return items
+
+
+def load_split(dirs: list[Path], per_class: int, seed: int,
+               exclude: frozenset[Path] = frozenset()) -> list[tuple[torch.Tensor, int, str]]:
+    """per_class AI + per_class real images (380x380 tensors), split evenly across datasets."""
+    return [(square_380(Image.open(p).convert("RGB")), label, name)
+            for p, label, name in select_paths(dirs, per_class, seed, exclude)]
 
 
 def jpeg(x: torch.Tensor, quality: int) -> torch.Tensor:
@@ -416,6 +438,136 @@ def square_attack(defense, x, eps, queries, gen, direction):
     return torch.cat(out)
 
 
+def random_geometry(x: torch.Tensor, gen: torch.Generator, min_scale: float = 0.85) -> torch.Tensor:
+    """Random crop of 85-100% of the side, resized back to SIZE: what a repost, a crop or a
+    screenshot does to where a fixed pattern lands on the model's input."""
+    scale = min_scale + (1 - min_scale) * torch.rand(1, generator=gen).item()
+    size = max(8, int(SIZE * scale))
+    top = int(torch.randint(0, SIZE - size + 1, (1,), generator=gen))
+    left = int(torch.randint(0, SIZE - size + 1, (1,), generator=gen))
+    crop = x[:, :, top : top + size, left : left + size]
+    return F.interpolate(crop, size=(SIZE, SIZE), mode="bilinear", align_corners=False, antialias=True)
+
+
+def band_margin_loss(defense: Defense, x: torch.Tensor, gen: torch.Generator, direction: float) -> torch.Tensor:
+    """Per-image hinge on the shown probability's logit: evasion pushes it 1 below the LOW
+    band, framing 1 above the HIGH band, and an image already there stops contributing, so
+    a universal pattern spends its budget on the images it hasn't fooled yet."""
+    z = defense.slope * eot_score(defense, x, gen, 1) + defense.intercept
+    low, high = math.log(LOW_THRESHOLD / (1 - LOW_THRESHOLD)), math.log(HIGH_THRESHOLD / (1 - HIGH_THRESHOLD))
+    loss = F.relu(z - low + 1.0) if direction > 0 else F.relu(high - z + 1.0)
+    if isinstance(defense, Consistency):
+        loss = loss + 4.0 * F.relu(defense.disagreement(x) - 0.5 * defense.tau)
+    return loss
+
+
+def fit_uap(defense: Defense, fit_x: torch.Tensor, eps: float, epochs: int, gen: torch.Generator,
+            direction: float, batch: int = 4) -> torch.Tensor:
+    """Universal perturbation (stochastic PGD on one shared delta; Shafahi et al. 2020),
+    fit through random crops/rescales so it is the pattern a real attacker would publish."""
+    delta = torch.zeros(1, 3, SIZE, SIZE)
+    alpha = eps / 8
+    for epoch in range(epochs):
+        order = torch.randperm(len(fit_x), generator=gen)
+        fooled = []
+        for i in range(0, len(fit_x), batch):
+            xb = fit_x[order[i : i + batch]]
+            delta = delta.clone().requires_grad_(True)
+            adv = random_geometry((xb + delta).clamp(0, 1), gen)
+            loss = band_margin_loss(defense, adv, gen, direction)
+            loss.mean().backward()
+            fooled.append((loss.detach() == 0).float())
+            delta = (delta - alpha * delta.grad.sign()).clamp(-eps, eps).detach()
+        print(f"  uap eps={eps * 255:.0f}/255 {'evasion' if direction > 0 else 'framing'} epoch {epoch + 1}/{epochs}: "
+              f"fit images past the band {torch.cat(fooled).mean():.1%}", flush=True)
+    return delta
+
+
+class Surrogate(torch.nn.Module):
+    """An open detector that is not in the app (tools/eval_candidates.py), as a
+    differentiable logit gap (higher = more AI) on [0,1] images of any size. Its native
+    resize + normalization are approximated in torch; exactness doesn't matter for a
+    surrogate, only the target is scored exactly."""
+
+    def __init__(self, candidate):
+        super().__init__()
+        self.name = candidate.name
+        if hasattr(candidate, "input_size"):  # Community Forensics: Resize(short) + CenterCrop
+            self.net = candidate.model
+            self.resize = 440 if candidate.input_size == 384 else 256
+            self.crop = candidate.input_size
+            self.mean, self.std = MEAN_T, STD_T
+            self.gap = lambda z: self.net(z).reshape(-1)
+        else:  # transformers image classifier
+            proc, model = candidate.processor, candidate.model
+            size = proc.size
+            self.resize = size.get("shortest_edge") or size.get("height")
+            crop = getattr(proc, "crop_size", None) if getattr(proc, "do_center_crop", False) else None
+            self.crop = (crop or {}).get("height") or self.resize
+            self.mean = torch.tensor(proc.image_mean, dtype=torch.float32).view(1, 3, 1, 1)
+            self.std = torch.tensor(proc.image_std, dtype=torch.float32).view(1, 3, 1, 1)
+            ai, real = candidate.ai_index, candidate.real_index
+            self.gap = lambda z: (lambda lg: lg[:, ai] - lg[:, real])(model(pixel_values=z).logits)
+            self.net = model
+        for p in self.net.parameters():
+            p.requires_grad_(False)
+        self.scale = 1.0
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = F.interpolate(x, size=(self.resize, self.resize), mode="bilinear", align_corners=False, antialias=True)
+        off = (self.resize - self.crop) // 2
+        y = y[:, :, off : off + self.crop, off : off + self.crop]
+        return self.gap((y - self.mean) / self.std) / self.scale
+
+
+def load_surrogates(names: list[str], calib_x: torch.Tensor) -> list[Surrogate]:
+    from eval_candidates import CANDIDATES
+
+    out = []
+    for name in names:
+        try:
+            candidate = CANDIDATES[name]
+            candidate.load()
+            surrogate = Surrogate(candidate).eval()
+            with torch.no_grad():
+                # Equal say for every surrogate: divide by its logit spread on clean images.
+                surrogate.scale = max(1e-3, float(surrogate(calib_x).std()))
+            out.append(surrogate)
+            print(f"surrogate {name}: loaded (clean logit std {surrogate.scale:.2f})")
+        except (Exception, SystemExit) as e:  # noqa: BLE001 - a missing surrogate must not sink the run
+            print(f"::warning::surrogate {name} failed to load: {e!r}")
+    return out
+
+
+def diverse_input(x: torch.Tensor, gen: torch.Generator, p: float = 0.7) -> torch.Tensor:
+    """DI-FGSM input diversity (Xie et al. 2019): random resize + pad, with probability p."""
+    if torch.rand(1, generator=gen).item() >= p:
+        return x
+    big = int(SIZE * 1.1)
+    size = int(torch.randint(SIZE, big, (1,), generator=gen))
+    y = F.interpolate(x, size=(size, size), mode="bilinear", align_corners=False)
+    left = int(torch.randint(0, big - size + 1, (1,), generator=gen))
+    top = int(torch.randint(0, big - size + 1, (1,), generator=gen))
+    return F.pad(y, (left, big - size - left, top, big - size - top), value=0.0)
+
+
+def mi_di_fgsm(surrogates: list[Surrogate], x: torch.Tensor, eps: float, steps: int, gen: torch.Generator,
+               direction: float, momentum: float = 1.0) -> torch.Tensor:
+    """Momentum + input-diversity iterative FGSM on the surrogate ensemble (Dong et al. 2018;
+    Xie et al. 2019) - the standard recipe for perturbations that transfer to unseen models."""
+    alpha = eps / steps
+    adv, g = x.clone(), torch.zeros_like(x)
+    for _ in range(steps):
+        adv = adv.clone().requires_grad_(True)
+        z = diverse_input(adv, gen)
+        loss = direction * torch.stack([s(z) for s in surrogates]).mean(0)
+        grad, = torch.autograd.grad(loss.sum(), adv)
+        g = momentum * g + grad / grad.abs().mean(dim=(1, 2, 3), keepdim=True).clamp_min(1e-12)
+        adv = (adv - alpha * g.sign()).detach()
+        adv = (x + (adv - x).clamp(-eps, eps)).clamp(0, 1)
+    return adv
+
+
 # --------------------------------------------------------------------------- evaluation
 
 def outcomes(defense: Defense, x: torch.Tensor, gen: torch.Generator) -> dict[str, np.ndarray]:
@@ -447,13 +599,25 @@ def main() -> None:
     parser.add_argument("--eot", type=int, default=4)
     parser.add_argument("--square-queries", type=int, default=200)
     parser.add_argument("--square-images", type=int, default=12)
+    parser.add_argument("--attacks", default="fgsm,pgd,transfer,framing,square",
+                        help="Comma-separated subset of " + ",".join(ATTACKS))
+    parser.add_argument("--uap-fit-per-class", type=int, default=40,
+                        help="Images per class the universal perturbation is fit on (disjoint from test)")
+    parser.add_argument("--uap-epochs", type=int, default=8)
+    parser.add_argument("--surrogates", default="commfor-384,ateeqq-siglip,dima806-vit",
+                        help="Open detectors not in the app, for transfer-ext (tools/eval_candidates.py names)")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--smoke", action="store_true", help="Tiny run to check the pipeline end to end")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    attacks = {a.strip() for a in args.attacks.split(",") if a.strip()}
+    unknown = attacks - set(ATTACKS)
+    if unknown:
+        parser.error(f"unknown attacks {sorted(unknown)}; choose from {ATTACKS}")
     if args.smoke:
         args.clean_per_class, args.attack_per_class, args.steps, args.eot = 4, 2, 2, 2
         args.square_queries, args.square_images, args.eps = 6, 1, "8"
+        args.uap_fit_per_class, args.uap_epochs = 2, 1
 
     started = time.time()
     gen = torch.Generator().manual_seed(args.seed)
@@ -529,7 +693,8 @@ def main() -> None:
     }
     print(json.dumps(result["clean"], indent=2))
 
-    attack_set = load_split(args.datasets, args.attack_per_class, args.seed + 2)
+    attack_paths = select_paths(args.datasets, args.attack_per_class, args.seed + 2)
+    attack_set = [(square_380(Image.open(p).convert("RGB")), label, name) for p, label, name in attack_paths]
     ai_x = torch.stack([t for t, lab, _ in attack_set if lab == 1])
     real_x = torch.stack([t for t, lab, _ in attack_set if lab == 0])
     # Transfer: crafted with gradients from a model that isn't (all of) the target. Against
@@ -556,23 +721,55 @@ def main() -> None:
                   f"success={success.mean():.1%} flagged={o['flagged'].mean():.1%} mean P={o['prob'].mean():.3f}",
                   flush=True)
 
+    if "uap" in attacks:
+        # Fit images are disjoint from the clean and test images: universality is measured on
+        # images the pattern has never seen.
+        clean_paths = select_paths(args.datasets, args.clean_per_class, args.seed)
+        used = frozenset(p for p, _, _ in clean_paths + attack_paths)
+        fit = load_split(args.datasets, args.uap_fit_per_class, args.seed + 3, exclude=used)
+        fit_ai = torch.stack([t for t, lab, _ in fit if lab == 1])
+        fit_real = torch.stack([t for t, lab, _ in fit if lab == 0])
+        result["uap_fit"] = {"ai": int(len(fit_ai)), "real": int(len(fit_real)), "epochs": args.uap_epochs}
+    surrogates = []
+    if "transfer-ext" in attacks:
+        surrogates = load_surrogates([n for n in args.surrogates.split(",") if n], clean_x[:16])
+        result["external_surrogates"] = [s.name for s in surrogates]
+
     for eps_255 in [float(e) for e in args.eps.split(",")]:
         eps = eps_255 / 255
-        record("fgsm", eps_255, batched(lambda b: fgsm(defense, b, eps, gen, args.eot, 1.0), ai_x), "evasion")
-        record("pgd (eot)", eps_255, batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, 1.0), ai_x),
+        if "fgsm" in attacks:
+            record("fgsm", eps_255, batched(lambda b: fgsm(defense, b, eps, gen, args.eot, 1.0), ai_x), "evasion")
+        if "pgd" in attacks:
+            record("pgd (eot)", eps_255,
+                   batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, 1.0), ai_x), "evasion")
+            if isinstance(defense, Consistency):
+                record("pgd adaptive", eps_255,
+                       batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, 1.0, adaptive=True), ai_x),
+                       "evasion")
+        if "transfer" in attacks:
+            record("transfer (surrogate)", eps_255,
+                   batched(lambda b: pgd(surrogate, b, eps, args.steps, gen, 1, 1.0), ai_x), "evasion")
+        if "framing" in attacks:
+            record("pgd framing", eps_255,
+                   batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, -1.0,
+                                         adaptive=isinstance(defense, Consistency)), real_x), "framing")
+        if "uap" in attacks:
+            for goal, direction, fit_x, test_x in (("evasion", 1.0, fit_ai, ai_x), ("framing", -1.0, fit_real, real_x)):
+                delta = fit_uap(defense, fit_x, eps, args.uap_epochs, gen, direction)
+                adv = (test_x + delta).clamp(0, 1)
+                record("uap", eps_255, adv, goal)
+                geometry_gen = torch.Generator().manual_seed(args.seed + 4)
+                record("uap (cropped/rescaled)", eps_255,
+                       torch.cat([random_geometry(a.unsqueeze(0), geometry_gen) for a in adv]), goal)
+        if surrogates:
+            record("transfer-ext (mi-di)", eps_255,
+                   batched(lambda b: mi_di_fgsm(surrogates, b, eps, args.steps, gen, 1.0), ai_x), "evasion")
+            record("transfer-ext framing", eps_255,
+                   batched(lambda b: mi_di_fgsm(surrogates, b, eps, args.steps, gen, -1.0), real_x), "framing")
+    if "square" in attacks:
+        square_x = ai_x[: args.square_images]
+        record("square (black box)", 8.0, square_attack(defense, square_x, 8 / 255, args.square_queries, gen, 1.0),
                "evasion")
-        if isinstance(defense, Consistency):
-            record("pgd adaptive", eps_255,
-                   batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, 1.0, adaptive=True), ai_x),
-                   "evasion")
-        record("transfer (surrogate)", eps_255,
-               batched(lambda b: pgd(surrogate, b, eps, args.steps, gen, 1, 1.0), ai_x), "evasion")
-        record("pgd framing", eps_255,
-               batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, -1.0,
-                                     adaptive=isinstance(defense, Consistency)), real_x), "framing")
-    square_x = ai_x[: args.square_images]
-    record("square (black box)", 8.0, square_attack(defense, square_x, 8 / 255, args.square_queries, gen, 1.0),
-           "evasion")
 
     result["seconds"] = round(time.time() - started)
     args.out.mkdir(parents=True, exist_ok=True)

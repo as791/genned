@@ -1,8 +1,9 @@
 name: Adversarial eval
 
-# Phase 2 (#15): benchmark phone-feasible defenses against white-box (FGSM, PGD with
-# EOT, adaptive), transfer and black-box (Square) attacks, then pick the defense to
-# integrate (tools/adv_report.py). One job per defense, in parallel. Manual only.
+# Phase 2 (#15) and Phase 3: benchmark the detector (and phone-feasible defenses) against
+# white-box (FGSM, PGD with EOT, adaptive), universal-perturbation, transfer (from one app
+# model, and from open detectors not in the app) and black-box (Square) attacks
+# (tools/adv_report.py). One job per defense, in parallel. Manual only.
 # The consistency-threshold job fits the consistency check's abstain threshold on the
 # app's exact pipeline (tools/consistency_calibrate.py).
 # Images never leave the runners; only numbers are uploaded.
@@ -26,6 +27,9 @@ on:
       square_images:
         description: Images attacked with the (slow) black-box Square Attack
         default: '30'
+      attacks:
+        description: Attacks (fgsm,pgd,transfer,framing,square,uap,transfer-ext)
+        default: 'fgsm,pgd,transfer,framing,square,uap,transfer-ext'
       assets_branch:
         description: Evaluate the model files + ensemble-params.json from this branch (empty = main's app models)
         default: ''
@@ -63,17 +67,20 @@ jobs:
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install "onnxruntime>=1.18,<2" "onnx>=1.16,<2" onnx2torch "timm>=1.0,<2" \
-            "huggingface_hub>=0.23,<1" "pillow>=10,<12" "numpy>=1.26,<3" "datasets>=2.19,<5"
+            "huggingface_hub>=0.23,<1" "pillow>=10,<12" "numpy>=1.26,<3" "datasets>=2.19,<5" \
+            "transformers>=4.40,<5"
 
       - name: Fetch image datasets
         run: tools/fetch_all_eval_data.sh 250
 
       - name: Attack ${{ matrix.defense }} (${{ inputs.model }})
+        env:
+          ATTACKS: ${{ inputs.attacks }}
         run: |
           python tools/adv_eval.py --model ${{ inputs.model }} --defense ${{ matrix.defense }} \
             --datasets eval-data/defactify eval-data/mj-dalle-sd-nbp \
             --attack-per-class ${{ inputs.attack_per_class }} --clean-per-class ${{ inputs.clean_per_class }} \
-            --square-images ${{ inputs.square_images }} \
+            --square-images ${{ inputs.square_images }} --attacks "$ATTACKS" \
             ${{ inputs.assets_branch != '' && '--ensemble-params internal-docs/ensemble-params.json' || '' }} \
             --out adv-results ${{ inputs.smoke && '--smoke' || '' }}
 

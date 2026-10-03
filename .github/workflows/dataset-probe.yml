@@ -33,6 +33,7 @@ jobs:
           CONFIG: ${{ inputs.config }}
           ROWS: ${{ inputs.rows }}
         run: |
+          set -o pipefail
           python tools/probe_dataset.py "$DATASET" ${CONFIG:+--config "$CONFIG"} --rows "$ROWS" \
             | tee probe.md
           { echo '```'; cat probe.md; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -140,7 +140,10 @@ def ensemble_score(primary_gap: float, commfor_logit: float, params: dict | None
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 EDIT_CONDITIONS = ("noise2", "noise4", "noise8", "grain", "blur", "sharpen", "filter", "rescale", "crop80",
                    "rotate3", "webp50", "screenshot", "chain_filter", "chain_shot")
-CONDITIONS = ("original", "jpeg75", "social") + EDIT_CONDITIONS
+# The standard benchmark conditions (other tools iterate over these); the everyday edits
+# are opt-in via --conditions.
+CONDITIONS = ("original", "jpeg75", "social")
+ALL_CONDITIONS = CONDITIONS + EDIT_CONDITIONS
 PREPROCESS_MODES = ("squash", "center_crop", "avg")
 BASE_MODES = ("squash", "center_crop")
 
@@ -622,7 +625,9 @@ def main() -> None:
     parser.add_argument("--model", type=Path, required=True, help="Path to the .onnx classifier")
     parser.add_argument("--dataset", type=Path, required=True, help="Path to the dataset/ai, dataset/real folder")
     parser.add_argument("--threshold", type=float, default=0.5, help="AI-probability threshold for a positive prediction")
-    parser.add_argument("--conditions", default="original", help=f"Comma-separated subset of {','.join(CONDITIONS)}")
+    parser.add_argument("--conditions", default="original",
+                        help=f"Comma-separated subset of {','.join(ALL_CONDITIONS)}, or 'edits' for every "
+                             "everyday edit")
     parser.add_argument("--preprocess", default="squash", help=f"Comma-separated subset of {','.join(PREPROCESS_MODES)}")
     parser.add_argument("--dataset-name", default=None, help="Name used in JSON output (default: dataset folder name)")
     parser.add_argument("--json-dir", type=Path, default=None, help="Write one JSON result per combination here")
@@ -646,10 +651,11 @@ def main() -> None:
             parser.error("--calibration must be SLOPE,INTERCEPT, e.g. 0.4,-0.1")
 
     conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
+    conditions = [e for c in conditions for e in (EDIT_CONDITIONS if c == "edits" else (c,))]
     modes = [m.strip() for m in args.preprocess.split(",") if m.strip()]
     for c in conditions:
-        if c not in CONDITIONS:
-            parser.error(f"unknown condition {c!r}; choose from {CONDITIONS}")
+        if c not in ALL_CONDITIONS:
+            parser.error(f"unknown condition {c!r}; choose from {ALL_CONDITIONS}")
     for m in modes:
         if m not in PREPROCESS_MODES:
             parser.error(f"unknown preprocess mode {m!r}; choose from {PREPROCESS_MODES}")

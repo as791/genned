@@ -36,6 +36,7 @@ from evaluate import (  # noqa: E402 - shared conditions/metrics keep results co
     calibrated_probability,
     collect_images,
     compute_metrics,
+    condition_seed,
     degrade,
     generator_of,
     print_report,
@@ -227,7 +228,8 @@ def main() -> None:
         except Exception as e:  # noqa: BLE001
             print(f"Skipping unreadable image {path}: {e}", file=sys.stderr)
             continue
-        inputs.append((path, is_ai, generator, {c: app_normalize(degrade(image, c)) for c in conditions}))
+        inputs.append((path, is_ai, generator,
+                       {c: app_normalize(degrade(image, c, condition_seed(path, c))) for c in conditions}))
 
     args.json_dir.mkdir(parents=True, exist_ok=True)
     for name in [n for n in args.candidates.split(",") if n]:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 
@@ -42,6 +43,13 @@ def main() -> None:
         print(f"  {(f.size or 0) / 1e6:10.1f} MB  {f.rfilename}")
     top_dirs = Counter(f.rfilename.split("/")[0] for f in files)
     print(f"top-level entries: {dict(top_dirs.most_common(30))}")
+    # Shard families, e.g. core/train-000NN-of-00032-000MM.parquet -> core/train-*.parquet.
+    families: dict[str, list[int]] = defaultdict(list)
+    for f in files:
+        families[re.sub(r"\d{3,}", "N", f.rfilename)].append(f.size or 0)
+    print("file families:")
+    for name, sizes in sorted(families.items(), key=lambda kv: -sum(kv[1]))[:40]:
+        print(f"  {len(sizes):5d} files {sum(sizes) / 1e9:9.1f} GB  {name}")
 
     try:
         print(f"configs: {get_dataset_config_names(args.dataset)}")

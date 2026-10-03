@@ -31,6 +31,41 @@ def worst(r, goal, eps=8.0, laundered=None):
     return max((a["success"] for a in rows), default=None)
 
 
+# Phase 3 threat classes (attack-name prefix -> class) and their gates at 8/255
+# (internal-docs/MODEL.md "Phase 3"); None = reported, not gated.
+THREATS = (
+    ("White box, per image", ("fgsm", "pgd"), None),
+    ("Universal pattern", ("uap",), 0.20),
+    ("Transfer from open detectors", ("transfer-ext",), 0.30),
+    ("Transfer from one app model", ("transfer (surrogate)",), None),
+    ("Black box, score queries", ("square",), None),
+)
+
+
+def threat_of(attack: str) -> str | None:
+    # Longest prefix wins, so "transfer-ext" isn't counted as "transfer".
+    matches = [(len(prefix), name) for name, prefixes, _ in THREATS for prefix in prefixes if attack.startswith(prefix)]
+    return max(matches)[1] if matches else None
+
+
+def threat_table(results: list[dict], eps: float = 8.0) -> list[str]:
+    out = [f"## By threat (worst case at {eps:.0f}/255 over direct, laundered and rescaled; lower is better)\n",
+           "| Model | Defense | Threat | Worst evasion | Worst framing | Gate | Pass |",
+           "|---|---|---|---|---|---|---|"]
+    for r in results:
+        for name, _, gate in THREATS:
+            rows = [a for a in r["attacks"] if a["eps"] == eps and threat_of(a["attack"]) == name]
+            if not rows:
+                continue
+            ev = max((a["success"] for a in rows if a["goal"] == "evasion"), default=None)
+            fr = max((a["success"] for a in rows if a["goal"] == "framing"), default=None)
+            worst_both = max(v for v in (ev, fr) if v is not None)
+            verdict = "reported" if gate is None else ("yes" if worst_both <= gate else "**no**")
+            out.append(f"| {r.get('model', 'bundled')} | {r['defense']} | {name} | {pct(ev)} | {pct(fr)} | "
+                       f"{'–' if gate is None else f'<= {gate:.0%}'} | {verdict} |")
+    return out
+
+
 def report_model(model: str, results: list[dict], max_cost: int) -> list[str]:
     baseline = next((r for r in results if r["defense"] == "none"), None)
     base_auc = baseline["clean"]["auc"] if baseline else None
@@ -90,6 +125,8 @@ def main() -> None:
         out += report_model(model, rows, args.max_cost)
         out.append("")
 
+    out += threat_table(results)
+    out.append("")
     out.append("## All attacks\n")
     out.append("| Model | Defense | Attack | eps /255 | Goal | Laundered | n | Success | Abstained | Mean P(ai) |")
     out.append("|---|---|---|---|---|---|---|---|---|---|")
