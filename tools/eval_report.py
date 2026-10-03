@@ -12,9 +12,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from evaluate import HIGH_THRESHOLD, LOW_THRESHOLD  # noqa: E402 - keep the report in sync with the app bands
+from evaluate import EDIT_CONDITIONS, HIGH_THRESHOLD, LOW_THRESHOLD  # noqa: E402 - keep the report in sync with the app bands
 
-CONDITION_ORDER = {"original": 0, "jpeg75": 1, "social": 2, "video": 3}
+CONDITION_ORDER = {"original": 0, "jpeg75": 1, "social": 2, "video": 3,
+                   **{c: 10 + i for i, c in enumerate(EDIT_CONDITIONS)}}
 PREPROCESS_ORDER = {"squash": 0, "center_crop": 1, "avg": 2, "native": 3, "video5": 4}
 BUNDLED = "dafilab (bundled)"
 

@@ -1,0 +1,105 @@
+name: Robustness eval
+
+# Phase 3: the app's models (shipped, or a candidate set from an assets branch) on every
+# benchmark dataset, unedited and under everyday edits (noise, filters, rescaling, crops,
+# screenshots, ...; tools/evaluate.py EDIT_CONDITIONS). One job per dataset, in parallel.
+# Images are used only inside the runners; only numbers are uploaded.
+on:
+  workflow_dispatch:
+    inputs:
+      datasets:
+        description: JSON list of dataset names (tools/fetch_all_eval_data.sh)
+        default: '["defactify","mj-dalle-sd-nbp"]'
+      samples_per_class:
+        description: Images per class (real / AI) per dataset
+        default: '150'
+      conditions:
+        description: Conditions (tools/evaluate.py; 'edits' = every everyday edit)
+        default: 'original,jpeg75,social,edits'
+      assets_branch:
+        description: Evaluate the model files + ensemble-params.json from this branch (empty = main's app models)
+        default: ''
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: ${{ fromJSON(inputs.datasets) }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the candidate model files
+        if: inputs.assets_branch != ''
+        env:
+          BRANCH: ${{ inputs.assets_branch }}
+        run: |
+          git fetch --depth 1 origin "$BRANCH"
+          git checkout FETCH_HEAD -- app/src/main/assets/models internal-docs/ensemble-params.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (CPU only, no torch)
+        run: pip install "onnxruntime>=1.18,<2" "pillow>=10,<12" "numpy>=1.26,<3" "datasets>=2.19,<5"
+
+      - name: Fetch ${{ matrix.dataset }}
+        run: tools/fetch_all_eval_data.sh ${{ inputs.samples_per_class }} ${{ matrix.dataset }}
+
+      - name: Evaluate
+        env:
+          DATASET: ${{ matrix.dataset }}
+          CONDITIONS: ${{ inputs.conditions }}
+          PARAMS: ${{ inputs.assets_branch != '' && 'internal-docs/ensemble-params.json' || '' }}
+        run: |
+          set -o pipefail
+          mkdir -p results
+          python tools/evaluate.py \
+            --model app/src/main/assets/models/ai-image-detector.onnx \
+            --commfor-onnx app/src/main/assets/models/commfor-224.onnx --ensemble \
+            ${PARAMS:+--ensemble-params "$PARAMS"} \
+            --dataset "eval-data/$DATASET" --dataset-name "$DATASET" \
+            --conditions "$CONDITIONS" --preprocess avg --calibration app --model-name "app as shipped" \
+            --json-dir results --scores-csv "results/scores-$DATASET.csv" > "results/$DATASET.txt"
+
+      - name: Upload results (numbers only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: robustness-${{ matrix.dataset }}
+          path: results/
+
+  report:
+    needs: evaluate
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install "numpy>=1.26,<3" "pillow>=10,<12" "onnxruntime>=1.18,<2"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: robustness-*
+          merge-multiple: true
+          path: results
+      - name: Report
+        run: |
+          {
+            python tools/edit_report.py results
+            echo
+            python tools/eval_report.py results
+          } > results/report.md
+          cat results/report.md >> "$GITHUB_STEP_SUMMARY"
+          cat results/report.md
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: robustness-report
+          path: results/
