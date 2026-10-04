@@ -30,6 +30,7 @@ import math
 import os
 import re
 import sys
+import hashlib
 from collections import Counter
 from pathlib import Path
 
@@ -68,6 +69,23 @@ def sniff_extension(data: bytes) -> str | None:
     return None
 
 
+def existing_state(out: Path) -> tuple[Counter, set[str]]:
+    """For --resume: images already in `out`, per folder key ("real" or the ai/<generator>
+    folder name), and the SHA-256 of every one of them, so a rerun neither restarts
+    numbering nor saves the same image twice."""
+    counts: Counter[str] = Counter()
+    hashes: set[str] = set()
+    folders = [("real", out / "real")] + [(d.name, d) for d in sorted((out / "ai").glob("*")) if d.is_dir()]
+    for key, folder in folders:
+        if not folder.is_dir():
+            continue
+        for f in folder.iterdir():
+            if f.is_file():
+                counts[key] += 1
+                hashes.add(hashlib.sha256(f.read_bytes()).hexdigest())
+    return counts, hashes
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset", required=True, help="Hugging Face dataset id")
@@ -93,7 +111,18 @@ def main() -> None:
                         help="Comma-separated names for integer generator ids; the name 'real' marks real images")
     parser.add_argument("--ai-values", default=None, help="Comma-separated raw label values meaning AI")
     parser.add_argument("--real-values", default=None, help="Comma-separated raw label values meaning real")
+    parser.add_argument("--resume", action="store_true",
+                        help="Keep images already in --out and only fetch what's missing (after a network failure)")
     args = parser.parse_args()
+
+    # Big parquet shards over a slow CDN: allow long reads and many retries (the defaults,
+    # a 10 s timeout and a handful of retries, can abort a multi-GB training fetch).
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "60")
+    os.environ.setdefault("HF_HUB_ETAG_TIMEOUT", "30")
+    import datasets.config as datasets_config
+
+    datasets_config.STREAMING_READ_MAX_RETRIES = max(getattr(datasets_config, "STREAMING_READ_MAX_RETRIES", 0), 30)
+    datasets_config.STREAMING_READ_RETRY_INTERVAL = max(getattr(datasets_config, "STREAMING_READ_RETRY_INTERVAL", 0), 5)
 
     from datasets import Image as HFImage
     from datasets import get_dataset_split_names, load_dataset
@@ -184,46 +213,63 @@ def main() -> None:
     ds = ds.cast_column(image_col, HFImage(decode=False)).shuffle(seed=args.seed, buffer_size=300)
 
     (args.out / "real").mkdir(parents=True, exist_ok=True)
-    counts: Counter[str] = Counter()
-    ai_total = 0
-    scanned = skipped = 0
+    counts, seen = existing_state(args.out) if args.resume else (Counter(), set())
+    ai_total = sum(n for key, n in counts.items() if key != "real")
+    if args.resume:
+        print(f"Resuming: {counts['real']} real and {ai_total} AI images already in {args.out}")
+    scanned = skipped = duplicates = 0
 
-    for row in ds:
-        scanned += 1
-        if scanned > args.max_scan:
-            break
-        if exclude is not None and exclude.search(str(row[generator_col])):
-            continue
-        label_is_ai = is_ai(row[label_col])
-        generator = generator_of(row) if label_is_ai else "real"
-        if generator_col is not None and generator_of(row).lower() == "real" and label_is_ai:
-            fail(f"Inconsistent labels: {label_col}={row[label_col]!r} says AI but "
-                 f"{generator_col} says real. The label mapping is wrong.", features)
-
-        if label_is_ai:
-            if ai_total >= args.per_class or counts[generator] >= per_generator_quota:
+    try:
+        for row in ds:
+            scanned += 1
+            if scanned > args.max_scan:
+                break
+            if exclude is not None and exclude.search(str(row[generator_col])):
                 continue
-        elif counts["real"] >= args.per_class:
-            continue
+            label_is_ai = is_ai(row[label_col])
+            # Counts are keyed by folder name ("real" or the ai/<generator> folder), as on disk.
+            key = generator_of(row).replace("/", "_") if label_is_ai else "real"
+            if generator_col is not None and generator_of(row).lower() == "real" and label_is_ai:
+                fail(f"Inconsistent labels: {label_col}={row[label_col]!r} says AI but "
+                     f"{generator_col} says real. The label mapping is wrong.", features)
 
-        image = row[image_col] or {}
-        data = image.get("bytes")
-        extension = sniff_extension(data) if data else None
-        if not data or extension is None:
-            skipped += 1
-            continue
+            if label_is_ai:
+                if ai_total >= args.per_class or counts[key] >= per_generator_quota:
+                    continue
+            elif counts["real"] >= args.per_class:
+                continue
 
-        folder = args.out / "real" if not label_is_ai else args.out / "ai" / generator.replace("/", "_")
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / f"{counts[generator]:05d}.{extension}").write_bytes(data)
-        counts[generator] += 1
-        if label_is_ai:
-            ai_total += 1
+            image = row[image_col] or {}
+            data = image.get("bytes")
+            extension = sniff_extension(data) if data else None
+            if not data or extension is None:
+                skipped += 1
+                continue
+            digest = hashlib.sha256(data).hexdigest()
+            if digest in seen:
+                duplicates += 1
+                continue
+            seen.add(digest)
 
-        if counts["real"] >= args.per_class and ai_total >= args.per_class:
-            break
+            folder = args.out / "ai" / key if label_is_ai else args.out / "real"
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / f"{counts[key]:05d}.{extension}").write_bytes(data)
+            counts[key] += 1
+            if label_is_ai:
+                ai_total += 1
 
-    print(f"Scanned {scanned} rows, skipped {skipped} without usable image bytes")
+            if counts["real"] >= args.per_class and ai_total >= args.per_class:
+                break
+    except Exception as e:  # noqa: BLE001 - a network failure after retries: keep what's saved
+        print(f"Stopped by {type(e).__name__}: {e}", file=sys.stderr)
+        print(f"Saved so far: real={counts['real']}, ai={ai_total}. Run the same command again with "
+              f"--resume to continue where it stopped.", file=sys.stderr)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(3)
+
+    print(f"Scanned {scanned} rows, skipped {skipped} without usable image bytes"
+          + (f" and {duplicates} duplicates" if duplicates else ""))
     print(f"Wrote: real={counts['real']}, ai={ai_total} "
           f"({', '.join(f'{g}={n}' for g, n in sorted(counts.items()) if g != 'real')})")
     if counts["real"] == 0 or ai_total == 0:

@@ -108,5 +108,36 @@ class UniversalTrainingTest(unittest.TestCase):
         self.assertAlmostEqual(self.ft.selection_score("aug+uat", metrics, 8.0), 0.6)
 
 
+class FetchResumeTest(unittest.TestCase):
+    def test_existing_state_counts_and_hashes(self):
+        import hashlib
+        import tempfile
+
+        import fetch_eval_data
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            (out / "real").mkdir()
+            (out / "ai" / "flux.2-dev").mkdir(parents=True)
+            (out / "real" / "00000.jpg").write_bytes(b"real-a")
+            (out / "real" / "00001.jpg").write_bytes(b"real-b")
+            (out / "ai" / "flux.2-dev" / "00000.png").write_bytes(b"ai-a")
+            counts, hashes = fetch_eval_data.existing_state(out)
+            self.assertEqual(counts["real"], 2)
+            self.assertEqual(counts["flux.2-dev"], 1)
+            self.assertIn(hashlib.sha256(b"ai-a").hexdigest(), hashes)
+            self.assertEqual(len(hashes), 3)
+
+    def test_existing_state_empty_dir(self):
+        import tempfile
+
+        import fetch_eval_data
+
+        with tempfile.TemporaryDirectory() as tmp:
+            counts, hashes = fetch_eval_data.existing_state(Path(tmp))
+            self.assertEqual(sum(counts.values()), 0)
+            self.assertEqual(hashes, set())
+
+
 if __name__ == "__main__":
     unittest.main()
