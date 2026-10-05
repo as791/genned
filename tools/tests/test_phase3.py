@@ -96,6 +96,23 @@ class UniversalTrainingTest(unittest.TestCase):
             attacked = loss(model((x + deltas[y.long()]).clamp(0, 1)), y)
         self.assertGreater(float(attacked), float(clean))
 
+    def test_prepared_views_are_exact(self):
+        import tempfile
+
+        torch = self.torch
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for sub, seed in (("ai/x", 1), ("real", 2)):
+                (root / sub).mkdir(parents=True)
+                for i in range(3):
+                    sample_image(seed * 10 + i, (300 + 10 * i, 260)).save(root / sub / f"{i}.png")
+            dataset = self.ft.Images([root], 3, "commfor", train=False, seed=0, condition="noise4")
+            x_u8, y = self.ft.prepare_views(dataset, workers=0, batch=2, label="test")
+            direct = torch.stack([dataset[i][0] for i in range(len(dataset))])
+            self.assertEqual(x_u8.dtype, torch.uint8)
+            self.assertTrue(torch.equal(x_u8.float() / 255, direct))
+            self.assertEqual(y.tolist(), [dataset[i][1].item() for i in range(len(dataset))])
+
     def test_jitter_keeps_shape(self):
         torch = self.torch
         delta = torch.rand(1, 3, 40, 40)

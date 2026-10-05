@@ -97,7 +97,7 @@ import torch.nn.functional as F  # noqa: E402
 
 MEAN_T = torch.tensor(MEAN).view(1, 3, 1, 1)
 STD_T = torch.tensor(STD).view(1, 3, 1, 1)
-RECIPE_VERSION = "phase3-v1"  # checked by notebooks/robust_finetune_kaggle.ipynb
+RECIPE_VERSION = "phase3-v2"  # checked by notebooks/robust_finetune_kaggle.ipynb
 PHASE2B_RECIPE = "adv-finetune-v3"  # checked by notebooks/adversarial_finetune.ipynb (Phase 2b)
 PHASE3_OBJECTIVES = ("aug", "uat", "aug+uat")
 # Edits the validation AUC is measured under (a spread of the everyday-edit families).
@@ -299,38 +299,51 @@ def fit_universal(model: nn.Module, images: torch.Tensor, labels: torch.Tensor, 
     return deltas
 
 
-def stack(dataset) -> tuple[torch.Tensor, torch.Tensor]:
-    xs, ys = zip(*(dataset[i] for i in range(len(dataset))))
-    return torch.stack(xs), torch.stack(ys)
+def prepare_views(dataset, workers: int, batch: int, label: str) -> tuple[torch.Tensor, torch.Tensor]:
+    """Loads a validation set once, in parallel, as uint8 tensors (exact: the views are uint8
+    pixels / 255), so every later validation is GPU-only. Decoding and editing full-size
+    images costs 0.1-0.7 s each, which made each validation take ~20 silent minutes."""
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch, num_workers=workers)
+    xs, ys, done, started = [], [], 0, time.time()
+    for x, y in loader:
+        xs.append((x * 255).round().to(torch.uint8))
+        ys.append(y)
+        done += len(x)
+        if done % (batch * 10) < batch or done == len(dataset):
+            print(f"  preparing validation images ({label}): {done}/{len(dataset)} "
+                  f"({time.time() - started:.0f}s)", flush=True)
+    return torch.cat(xs), torch.cat(ys)
 
 
-def evaluate_phase3(model: nn.Module, val_set: "Images", edit_sets: dict, device, eps: float, amp: bool,
-                    batch: int, uap_epochs: int) -> dict:
+def evaluate_phase3(model: nn.Module, views: dict[str, tuple[torch.Tensor, torch.Tensor]], device, eps: float,
+                    amp: bool, batch: int, uap_epochs: int) -> dict:
     """Clean AUC/accuracy, AUC under each validation edit, and accuracy of the other half of the
-    validation images under a fresh universal perturbation fit on the first half."""
+    validation images under a fresh universal perturbation fit on the first half. `views` maps
+    "clean" and each edit name to prepare_views() output."""
     model.eval()
 
-    def scores_of(dataset) -> tuple[np.ndarray, np.ndarray]:
-        loader = torch.utils.data.DataLoader(dataset, batch_size=batch, num_workers=0)
-        s, l = [], []
-        for x, y in loader:
+    def scores_of(x_u8: torch.Tensor, y: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
+        s = []
+        for i in range(0, len(x_u8), batch):
+            xb = x_u8[i : i + batch].to(device).float() / 255
             with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-                s += model(x.to(device)).float().cpu().tolist()
-            l += y.tolist()
-        return np.array(l), np.array(s)
+                s += model(xb).float().cpu().tolist()
+        return y.numpy(), np.array(s)
 
-    labels, scores = scores_of(val_set)
+    labels, scores = scores_of(*views["clean"])
     out = {"clean_auc": roc_auc(labels, scores), "clean_acc": float(((scores > 0) == labels).mean()), "n": len(labels)}
     edit_aucs = {}
-    for name, dataset in edit_sets.items():
-        l, s = scores_of(dataset)
-        edit_aucs[name] = roc_auc(l, s)
+    for name, (x_u8, y) in views.items():
+        if name != "clean":
+            l, s = scores_of(x_u8, y)
+            edit_aucs[name] = roc_auc(l, s)
     out["edit_auc"] = edit_aucs
     valid = [v for v in edit_aucs.values() if v is not None]
     out["edit_auc_mean"] = float(np.mean(valid)) if valid else None
     out["edit_auc_min"] = float(np.min(valid)) if valid else None
 
-    x, y = stack(val_set)
+    x_u8, y = views["clean"]
+    x = x_u8.float() / 255
     half = len(x) // 2
     deltas = fit_universal(model, x[:half], y[:half], eps, uap_epochs, batch, device, amp)
     test_x, test_y = x[half:].to(device), y[half:].to(device)
@@ -408,7 +421,8 @@ def main() -> None:
     parser.add_argument("--acc-drop", type=float, default=0.05, help="Eligible: clean accuracy >= start - this")
     parser.add_argument("--collapse-drop", type=float, default=0.05, help="Stop: clean AUC < start - this")
     parser.add_argument("--tag", default="", help="Suffix for the output names, e.g. v3 -> commfor-robust-v3.pt")
-    parser.add_argument("--workers", type=int, default=min(4, os.cpu_count() or 1))
+    parser.add_argument("--workers", type=int, default=os.cpu_count() or 1,
+                        help="Data-loading processes (image decoding and edits are the bottleneck, not the GPU)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--push-to-hub", default=None, help="Private HF model repo to upload to, e.g. you/genned-robust")
@@ -446,11 +460,9 @@ def main() -> None:
     train_set = Images(args.train_data, args.per_class, args.model, train=True, seed=args.seed,
                        edit_share=args.edit_share if uses_aug else 0.0)
     val_set = Images(args.val_data, args.val_per_class, args.model, train=False, seed=args.seed + 1)
-    # Same validation images under each edit (fixed per-image seeds), for the edited AUC.
-    edit_sets = {e: Images([], 0, args.model, train=False, seed=0, condition=e, items=val_set.items)
-                 for e in VAL_EDITS} if phase3 else {}
-    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch, shuffle=True, drop_last=True,
-                                               num_workers=args.workers, pin_memory=amp)
+    train_loader = torch.utils.data.DataLoader(
+        train_set, batch_size=batch, shuffle=True, drop_last=True, num_workers=args.workers, pin_memory=amp,
+        persistent_workers=args.workers > 0, prefetch_factor=4 if args.workers > 0 else None)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch, num_workers=args.workers)
     steps_per_epoch = len(train_loader)
     total_steps = max(1, epochs * steps_per_epoch)
@@ -474,14 +486,27 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_factor)
     scaler = torch.amp.GradScaler(device.type, enabled=amp)
 
+    views: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
+    if phase3:
+        # The same validation images clean and under each edit (fixed per-image seeds), prepared once.
+        views["clean"] = prepare_views(val_set, args.workers, batch, "clean")
+        for e in VAL_EDITS:
+            views[e] = prepare_views(Images([], 0, args.model, train=False, seed=0, condition=e, items=val_set.items),
+                                     args.workers, batch, e)
+
     def validate() -> dict:
+        started_v = time.time()
+        print("validating...", flush=True)
         if phase3:
-            return evaluate_phase3(model, val_set, edit_sets, device, args.eps / 255, amp, batch, args.val_uap_epochs)
-        return evaluate(model, val_loader, device, eval_eps, amp)
+            metrics = evaluate_phase3(model, views, device, args.eps / 255, amp, batch, args.val_uap_epochs)
+        else:
+            metrics = evaluate(model, val_loader, device, eval_eps, amp)
+        print(f"  validation took {time.time() - started_v:.0f}s", flush=True)
+        return metrics
 
     base = validate()
     print(f"start (as shipped): {base}", flush=True)
-    view = next(iter(train_loader))[0].shape[-2:]
+    view = views["clean"][0].shape[-2:] if phase3 else val_set[0][0].shape[-2:]
     deltas = torch.zeros(2, 3, *view, device=device)  # uat: index 1 for AI images, 0 for real
     log = {"recipe": RECIPE_VERSION if phase3 else PHASE2B_RECIPE, "model": args.model,
            "objective": args.objective, "beta": args.beta, "edit_share": args.edit_share if uses_aug else 0.0,
@@ -494,6 +519,7 @@ def main() -> None:
            "base": base, "evaluations": [], "stopped": None, "selected": None, "meets_clean_gate": False}
     best_robust, best_state = -1.0, None
     started = time.time()
+    validation_seconds = 0.0
     step = 0
     sums = {"loss": 0.0, "clean": 0.0, "robust": 0.0, "batch_robust_acc": 0.0}
     since = 0
@@ -567,16 +593,25 @@ def main() -> None:
             sums["clean"] += clean_loss.item()
             sums["robust"] += robust_loss.item()
             sums["batch_robust_acc"] += ((adv_logit.detach() > 0).float() == y).float().mean().item()
-            if step % 50 == 0:
+            if step == 1:
+                print(f"first training step done after {time.time() - started:.0f}s "
+                      f"({steps_per_epoch} steps per epoch)", flush=True)
+            if step % 50 == 0 or (step <= 100 and step % 10 == 0):
                 avg = {k: v / since for k, v in sums.items()}
+                elapsed = time.time() - started - validation_seconds
+                rate = step * batch / max(1e-6, elapsed)
+                eta = (total_steps - step) * batch / max(1e-6, rate)
                 print(f"epoch {epoch} step {step}/{total_steps} loss {avg['loss']:.4f} (clean {avg['clean']:.4f}, "
                       f"robust {avg['robust']:.4f}, in-batch robust acc {avg['batch_robust_acc']:.1%}) "
                       f"eps {cur_eps * 255:.2f}/255 beta {cur_beta:.2f} lr {scheduler.get_last_lr()[0]:.2e} "
-                      f"({time.time() - started:.0f}s)", flush=True)
+                      f"- {rate:.1f} img/s, training ETA {eta / 60:.0f} min ({time.time() - started:.0f}s)",
+                      flush=True)
             if step % eval_every != 0 and step != total_steps:
                 continue
 
+            started_v = time.time()
             metrics = validate()
+            validation_seconds += time.time() - started_v
             train_avg = {f"train_{k}": v / max(1, since) for k, v in sums.items()}
             sums = {k: 0.0 for k in sums}
             since = 0
