@@ -26,11 +26,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import math
 import os
 import re
 import sys
-import hashlib
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -217,14 +218,23 @@ def main() -> None:
     ai_total = sum(n for key, n in counts.items() if key != "real")
     if args.resume:
         print(f"Resuming: {counts['real']} real and {ai_total} AI images already in {args.out}")
-    scanned = skipped = duplicates = 0
+    scanned = skipped = duplicates = excluded = 0
+    started = last_report = time.time()
+
+    def report() -> None:
+        print(f"  scanned {scanned} rows: saved real {counts['real']}/{args.per_class}, "
+              f"AI {ai_total}/{args.per_class}; {excluded} excluded ({time.time() - started:.0f}s)", flush=True)
 
     try:
         for row in ds:
             scanned += 1
             if scanned > args.max_scan:
                 break
+            if scanned % 250 == 0 or time.time() - last_report >= 30:
+                report()
+                last_report = time.time()
             if exclude is not None and exclude.search(str(row[generator_col])):
+                excluded += 1
                 continue
             label_is_ai = is_ai(row[label_col])
             # Counts are keyed by folder name ("real" or the ai/<generator> folder), as on disk.
