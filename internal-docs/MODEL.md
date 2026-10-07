@@ -638,6 +638,20 @@ transfer 87% / 82%.
   (`--exclude-generators`), plus Defactify train.
 - **Safeguards:** the Phase 2b clean gate and collapse guard still apply.
 
+**Where to train:**
+- **GitHub Actions, no GPU:** the **Phase 3 train (CPU)** workflow, hands-off and free
+  for this public repo.
+  - Measured on 4 vCPUs (forward + backward on clean + perturbed images): Community
+    Forensics 4.5 img/s, EfficientNet-B4 0.7 img/s.
+  - With image decoding and edits sharing the cores, that's about 3 and 0.6 img/s.
+  - Community Forensics (2,500 + 1,000 images per class, 5 epochs) fits one 6 h job.
+  - EfficientNet-B4 needs `jobs: 3`: chained jobs that hand over a saved training state
+    (`--save-state` / `--resume-state`, `--max-hours`).
+  - The checkpoint lands in the run's `phase3-<model>-checkpoint` artifact. Pass the run
+    id to **Ensemble build** as `checkpoint_run_id`.
+- **Kaggle GPU:** `notebooks/robust_finetune_kaggle.ipynb`, faster but needs someone to
+  run it.
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace

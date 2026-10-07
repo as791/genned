@@ -1,0 +1,148 @@
+name: Phase 3 train job
+
+# One training job (<= 6 h on a 4-vCPU runner), called by phase3-train.yml. It fetches the
+# training data, trains with a time limit, and uploads the best checkpoint plus a resumable
+# state. With `resume`, it continues the state the previous job uploaded.
+# Images stay on the runner; only weights and numbers are uploaded.
+on:
+  workflow_call:
+    inputs:
+      model: {type: string, required: true}
+      objective: {type: string, required: true}
+      openfake_per_class: {type: string, required: true}
+      defactify_per_class: {type: string, required: true}
+      epochs: {type: string, required: true}
+      resume: {type: boolean, default: false}
+    outputs:
+      finished:
+        description: "'true' when training reached its last step (or stopped on its own)"
+        value: ${{ jobs.train.outputs.finished }}
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    outputs:
+      finished: ${{ steps.result.outputs.finished }}
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_HUB_DOWNLOAD_TIMEOUT: '120'
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner image ships ~30 GB of SDKs this job doesn't need; the training images do.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/local/.ghcup || true
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (CPU-only torch)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install "onnxruntime>=1.18,<2" "pillow>=10,<12" "numpy>=1.26,<3" "datasets>=2.19,<5" \
+            "timm>=1.0,<2" "huggingface_hub>=0.23,<1"
+
+      # Proprietary generators are never trained on (their OpenFake subsets are
+      # non-commercial and the weights ship in the app); the benchmarks still test on them.
+      - name: Fetch training and validation data
+        env:
+          OPENFAKE_PER_CLASS: ${{ inputs.openfake_per_class }}
+          DEFACTIFY_PER_CLASS: ${{ inputs.defactify_per_class }}
+        run: |
+          PROPRIETARY="midjourney|dall-?e|gpt-image|imagen|ideogram|grok|recraft|seedream|nano-banana|mystic|veo|sora|kling|firefly|runway|luma|hailuo|ernie|seededit|gemini"
+          fetch() {
+            for attempt in 1 2 3 4 5 6; do
+              python -u tools/fetch_eval_data.py "$@" --resume && return 0
+              echo "Network trouble (attempt $attempt); resuming in 30 s"; sleep 30
+            done
+            return 1
+          }
+          fetch --dataset ComplexDataLab/OpenFake --config core --split train --strict-split \
+            --out data/train/openfake --per-class "$OPENFAKE_PER_CLASS" \
+            --label-col label --ai-values fake --real-values real --generator-col model \
+            --exclude-generators "$PROPRIETARY" --max-per-generator 300 --max-scan 200000
+          fetch --dataset Rajarshi-Roy-research/Defactify_Image_Dataset --split train --strict-split \
+            --out data/train/defactify --per-class "$DEFACTIFY_PER_CLASS" --max-scan 25000 \
+            --label-col Label_A --ai-values 1 --real-values 0 \
+            --generator-col Label_B --generator-names real,sd21,sdxl,sd3,dalle3,midjourney6
+          fetch --dataset ComplexDataLab/OpenFake --config core --split validation --strict-split \
+            --out data/val/openfake --per-class 150 \
+            --label-col label --ai-values fake --real-values real --generator-col model \
+            --exclude-generators "$PROPRIETARY" --max-per-generator 15 --max-scan 20000
+          du -sh data/train/* data/val/*
+
+      - name: Download the previous job's training state
+        if: inputs.resume
+        uses: actions/download-artifact@v4
+        with:
+          name: phase3-${{ inputs.model }}-state
+          path: state
+
+      # 3 compute threads + 2 data workers on 4 vCPUs: image decoding and edits cost about as
+      # much CPU as the model itself.
+      - name: Train
+        env:
+          MODEL: ${{ inputs.model }}
+          OBJECTIVE: ${{ inputs.objective }}
+          EPOCHS: ${{ inputs.epochs }}
+          PER_CLASS: ${{ inputs.openfake_per_class }}
+          RESUME: ${{ inputs.resume }}
+        run: |
+          set -o pipefail
+          extra=()
+          [ "$RESUME" = "true" ] && extra+=(--resume-state "state/$MODEL-state-p3.pt")
+          [ "$MODEL" = "bundled" ] && extra+=(--batch-size 12)
+          python -u tools/adv_finetune.py --model "$MODEL" --objective "$OBJECTIVE" \
+            --train-data data/train/openfake data/train/defactify --val-data data/val/openfake \
+            --per-class "$PER_CLASS" --val-per-class 150 --epochs "$EPOCHS" --evals-per-epoch 1 \
+            --workers 2 --torch-threads 3 --max-hours 4.8 --save-state --tag p3 --out runs "${extra[@]}" \
+            | tee runs-train.log
+
+      - name: Result
+        id: result
+        env:
+          MODEL: ${{ inputs.model }}
+        run: |
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, os
+          log = json.load(open(f"runs/{os.environ['MODEL']}-train-log-p3.json"))
+          b = log["base"]
+          print(f"### {log['model']} ({log['objective']}), job {log['jobs']}: step {log['step']}, "
+                f"finished: {log['finished']}, stopped: {log['stopped']}\n")
+          print("| Validation | Clean AUC | Clean acc | Edited AUC mean / min | Universal robust acc | Eligible |")
+          print("|---|---|---|---|---|---|")
+          print(f"| start | {b['clean_auc']:.3f} | {b['clean_acc']:.1%} | {b['edit_auc_mean']:.3f} / "
+                f"{b['edit_auc_min']:.3f} | {b['uap_robust_acc_8']:.1%} | - |")
+          for e in log["evaluations"]:
+              print(f"| epoch {e['epoch']} | {e['clean_auc']:.3f} | {e['clean_acc']:.1%} | {e['edit_auc_mean']:.3f} / "
+                    f"{e['edit_auc_min']:.3f} | {e['uap_robust_acc_8']:.1%} | {'yes' if e['eligible'] else 'no'} |")
+          sel = log["selected"]
+          print(f"\nSelected: {'epoch ' + str(sel['epoch']) if sel else 'none (no checkpoint met the clean gate)'}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"finished={'true' if log['finished'] else 'false'}\n")
+          PY
+
+      - name: Upload checkpoint and log (weights and numbers only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-${{ inputs.model }}-checkpoint
+          path: |
+            runs/*-robust-p3.pt
+            runs/*-train-log-p3.json
+            runs-train.log
+          overwrite: true
+          if-no-files-found: warn
+
+      - name: Upload training state (for the next job)
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-${{ inputs.model }}-state
+          path: runs/*-state-p3.pt
+          overwrite: true
+          retention-days: 7

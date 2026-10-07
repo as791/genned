@@ -7,7 +7,8 @@ name: Ensemble build
 # files and the fitted parameters are pushed to the `assets_branch` branch for review;
 # nothing lands on main from here. Images and videos never leave the runner.
 # Adversarially fine-tuned weights (tools/adv_finetune.py, #15) can replace either model:
-# pass "hf-repo:filename" in bundled_checkpoint / commfor_checkpoint.
+# pass "hf-repo:filename" in bundled_checkpoint / commfor_checkpoint, or the run id of a
+# Phase 3 train workflow run in checkpoint_run_id (its *-robust-p3.pt artifacts).
 on:
   workflow_dispatch:
     inputs:
@@ -23,12 +24,16 @@ on:
       commfor_checkpoint:
         description: Fine-tuned Community Forensics weights, "hf-repo:file" (empty = the published model)
         default: ''
+      checkpoint_run_id:
+        description: Phase 3 train run id; uses its *-robust-p3.pt checkpoints (empty = none)
+        default: ''
       assets_branch:
         description: Branch the built files + parameters are pushed to
         default: model-assets
 
 permissions:
   contents: write
+  actions: read   # download checkpoints from a Phase 3 train run
 
 jobs:
   build:
@@ -53,11 +58,29 @@ jobs:
       - name: Fetch image datasets
         run: tools/fetch_all_eval_data.sh ${{ inputs.samples_per_class }}
 
+      - name: Download checkpoints from the Phase 3 train run
+        if: inputs.checkpoint_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.checkpoint_run_id }}
+          github-token: ${{ github.token }}
+          pattern: phase3-*-checkpoint
+          merge-multiple: true
+          path: checkpoints
+
       - name: Build model files (export, fp16 weights, parity, app ORT compatibility)
         env:
           BUNDLED_CHECKPOINT: ${{ inputs.bundled_checkpoint }}
           COMMFOR_CHECKPOINT: ${{ inputs.commfor_checkpoint }}
         run: |
+          # Checkpoints from a train run fill in whichever model wasn't given explicitly.
+          if [ -z "$BUNDLED_CHECKPOINT" ] && [ -f checkpoints/bundled-robust-p3.pt ]; then
+            BUNDLED_CHECKPOINT=checkpoints/bundled-robust-p3.pt
+          fi
+          if [ -z "$COMMFOR_CHECKPOINT" ] && [ -f checkpoints/commfor-robust-p3.pt ]; then
+            COMMFOR_CHECKPOINT=checkpoints/commfor-robust-p3.pt
+          fi
+          echo "bundled: ${BUNDLED_CHECKPOINT:-as shipped}; commfor: ${COMMFOR_CHECKPOINT:-as published}"
           mkdir -p eval-results
           args=(--dataset eval-data/defactify --out model-assets --report eval-results/parity.md)
           if [ -n "$BUNDLED_CHECKPOINT" ]; then

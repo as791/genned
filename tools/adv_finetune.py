@@ -104,6 +104,7 @@ PHASE3_OBJECTIVES = ("aug", "uat", "aug+uat")
 VAL_EDITS = ("noise4", "filter", "rescale", "webp50", "screenshot", "chain_shot")
 CHECKPOINT_NAME = "{model}-robust{suffix}.pt"
 LOG_NAME = "{model}-train-log{suffix}.json"
+STATE_NAME = "{model}-state{suffix}.pt"
 
 
 # --------------------------------------------------------------------------- models
@@ -427,6 +428,16 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--push-to-hub", default=None, help="Private HF model repo to upload to, e.g. you/genned-robust")
     parser.add_argument("--dry-run", action="store_true", help="Random-init models + synthetic images, CPU-friendly")
+    parser.add_argument("--max-hours", type=float, default=None,
+                        help="Stop training after this long (e.g. under a CI job limit): validate once more, save the "
+                             "best checkpoint and, with --save-state, everything needed to continue")
+    parser.add_argument("--save-state", action="store_true",
+                        help="Write <model>-state[-tag].pt (model, optimizer, schedule, perturbations, step, log) so a "
+                             "later run can continue with --resume-state")
+    parser.add_argument("--resume-state", type=Path, default=None,
+                        help="Continue a run saved with --save-state (same data and settings)")
+    parser.add_argument("--torch-threads", type=int, default=None,
+                        help="CPU compute threads (leave cores for the data workers on CPU-only machines)")
     args = parser.parse_args()
     phase3 = args.objective in PHASE3_OBJECTIVES
     uses_aug = args.objective in ("aug", "aug+uat")
@@ -434,6 +445,8 @@ def main() -> None:
     if args.eps is None:
         args.eps = 8.0 if phase3 else 4.0
 
+    if args.torch_threads:
+        torch.set_num_threads(args.torch_threads)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -504,10 +517,33 @@ def main() -> None:
         print(f"  validation took {time.time() - started_v:.0f}s", flush=True)
         return metrics
 
-    base = validate()
-    print(f"start (as shipped): {base}", flush=True)
+    resumed = torch.load(args.resume_state, map_location="cpu", weights_only=False) if args.resume_state else None
+    if resumed is not None:
+        if resumed["recipe"] != (RECIPE_VERSION if phase3 else PHASE2B_RECIPE):
+            sys.exit(f"--resume-state {args.resume_state} is from recipe {resumed['recipe']}; refusing to continue.")
+        if resumed["total_steps"] != total_steps:
+            # A re-download can differ by a few images; keep the original schedule (the LR
+            # schedule and ramps read total_steps / warmup_steps when called).
+            print(f"note: this data gives {total_steps} steps, the saved run planned {resumed['total_steps']}; "
+                  f"keeping the saved schedule", flush=True)
+            total_steps = resumed["total_steps"]
+            warmup_steps = max(1, int(args.warmup * total_steps))
+        model.net.load_state_dict(resumed["net"])
+        optimizer.load_state_dict(resumed["optimizer"])
+        scheduler.load_state_dict(resumed["scheduler"])
+        scaler.load_state_dict(resumed["scaler"])
+        random.setstate(resumed["rng"]["python"])
+        np.random.set_state(resumed["rng"]["numpy"])
+        torch.set_rng_state(resumed["rng"]["torch"])
+        base = resumed["log"]["base"]  # the gates always compare with the model as shipped
+        print(f"resuming at step {resumed['step']}/{total_steps} (start as shipped: {base})", flush=True)
+    else:
+        base = validate()
+        print(f"start (as shipped): {base}", flush=True)
     view = views["clean"][0].shape[-2:] if phase3 else val_set[0][0].shape[-2:]
     deltas = torch.zeros(2, 3, *view, device=device)  # uat: index 1 for AI images, 0 for real
+    if resumed is not None:
+        deltas = resumed["deltas"].to(device)
     log = {"recipe": RECIPE_VERSION if phase3 else PHASE2B_RECIPE, "model": args.model,
            "objective": args.objective, "beta": args.beta, "edit_share": args.edit_share if uses_aug else 0.0,
            "uat_weight": args.uat_weight if uses_uat else None, "uat_step": args.uat_step if uses_uat else None,
@@ -518,14 +554,27 @@ def main() -> None:
            "train_data": [p.name for p in args.train_data], "dry_run": args.dry_run,
            "base": base, "evaluations": [], "stopped": None, "selected": None, "meets_clean_gate": False}
     best_robust, best_state = -1.0, None
+    step = 0
+    if resumed is not None:
+        log = resumed["log"]
+        best_robust, best_state, step = resumed["best_score"], resumed["best_state"], resumed["step"]
+    log["jobs"] = log.get("jobs", 0) + 1
     started = time.time()
     validation_seconds = 0.0
-    step = 0
+    first_step = step
+    timed_out = False
     sums = {"loss": 0.0, "clean": 0.0, "robust": 0.0, "batch_robust_acc": 0.0}
     since = 0
 
-    for epoch in range(1, epochs + 1):
+    while step < total_steps and not log["stopped"] and not timed_out:
         for x, y in train_loader:
+            if step >= total_steps:
+                break
+            if args.max_hours and time.time() - started > args.max_hours * 3600:
+                timed_out = True
+                print(f"time limit ({args.max_hours} h) reached at step {step}/{total_steps}", flush=True)
+                break
+            epoch = step // steps_per_epoch + 1
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
             cur_eps = args.eps / 255 * ramp(step, args.eps_ramp_epochs)
             cur_beta = args.beta * ramp(step, args.beta_ramp_epochs)
@@ -593,13 +642,13 @@ def main() -> None:
             sums["clean"] += clean_loss.item()
             sums["robust"] += robust_loss.item()
             sums["batch_robust_acc"] += ((adv_logit.detach() > 0).float() == y).float().mean().item()
-            if step == 1:
+            if step == first_step + 1:
                 print(f"first training step done after {time.time() - started:.0f}s "
                       f"({steps_per_epoch} steps per epoch)", flush=True)
-            if step % 50 == 0 or (step <= 100 and step % 10 == 0):
+            if step % 50 == 0 or (step - first_step <= 100 and step % 10 == 0):
                 avg = {k: v / since for k, v in sums.items()}
                 elapsed = time.time() - started - validation_seconds
-                rate = step * batch / max(1e-6, elapsed)
+                rate = (step - first_step) * batch / max(1e-6, elapsed)
                 eta = (total_steps - step) * batch / max(1e-6, rate)
                 print(f"epoch {epoch} step {step}/{total_steps} loss {avg['loss']:.4f} (clean {avg['clean']:.4f}, "
                       f"robust {avg['robust']:.4f}, in-batch robust acc {avg['batch_robust_acc']:.1%}) "
@@ -643,8 +692,33 @@ def main() -> None:
                 print(f"STOPPED: {log['stopped']}", flush=True)
                 break
             model.train()
-        if log["stopped"]:
-            break
+
+    last_validated = log["evaluations"][-1]["step"] if log["evaluations"] else -1
+    if timed_out and step > last_validated and step > first_step:
+        # Don't lose the training since the last validation: score it once before stopping.
+        metrics = validate()
+        eligible, _ = assess(metrics, base, args.auc_gate, args.acc_drop, args.collapse_drop)
+        record = {"step": step, "epoch": round(step / steps_per_epoch, 2), "eligible": eligible, **metrics}
+        log["evaluations"].append(record)
+        score = selection_score(args.objective, metrics, args.eps) if phase3 else metrics[key_name]
+        print(f"validation @ epoch {record['epoch']} (time limit): clean AUC {metrics['clean_auc']:.3f}, "
+              f"{key_name} {metrics[key_name]:.1%} - {'eligible' if eligible else 'NOT eligible'}", flush=True)
+        if eligible and score > best_robust:
+            best_robust = score
+            best_state = {k: v.detach().cpu().clone() for k, v in model.net.state_dict().items()}
+            log["selected"], log["meets_clean_gate"] = record, True
+    log["finished"] = step >= total_steps or bool(log["stopped"])
+    log["step"] = step
+    if args.save_state:
+        state_path = args.out / STATE_NAME.format(model=args.model, suffix=suffix)
+        torch.save({"recipe": RECIPE_VERSION if phase3 else PHASE2B_RECIPE, "total_steps": total_steps,
+                    "step": step, "net": model.net.state_dict(), "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(), "deltas": deltas.cpu(),
+                    "rng": {"python": random.getstate(), "numpy": np.random.get_state(),
+                            "torch": torch.get_rng_state()},
+                    "log": log, "best_score": best_robust, "best_state": best_state}, state_path)
+        print(f"Saved training state {state_path} (step {step}/{total_steps}"
+              f"{'' if log['finished'] else '; continue with --resume-state'})", flush=True)
 
     log["seconds"] = round(time.time() - started)
     checkpoint = args.out / CHECKPOINT_NAME.format(model=args.model, suffix=suffix)

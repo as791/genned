@@ -1,0 +1,73 @@
+name: Phase 3 train (CPU)
+
+# Fine-tunes one of the app's models for Phase 3 (internal-docs/MODEL.md: everyday-edit
+# augmentation + universal adversarial training) on GitHub's free CPU runners, no GPU.
+# Each job is capped at about 6 h, so a model that needs longer is trained in up to 3
+# chained jobs that hand over a saved training state. Measured on 4 vCPUs: Community
+# Forensics ~3 img/s (one job is enough), EfficientNet-B4 ~0.6 img/s (use 3 jobs).
+# The checkpoint lands in artifact phase3-<model>-checkpoint; pass this run's id to
+# Ensemble build (checkpoint_run_id) to build and benchmark it.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model to fine-tune
+        type: choice
+        options: [commfor, bundled]
+        default: commfor
+      objective:
+        description: Training objective (tools/adv_finetune.py)
+        type: choice
+        options: [aug+uat, aug, uat]
+        default: aug+uat
+      openfake_per_class:
+        description: Training images per class from OpenFake train (open-weights generators only)
+        default: '2500'
+      defactify_per_class:
+        description: Training images per class from Defactify train
+        default: '1000'
+      epochs:
+        description: Epochs
+        default: '5'
+      jobs:
+        description: Chained 6-hour jobs (commfor 1; bundled 3)
+        type: choice
+        options: ['1', '2', '3']
+        default: '1'
+
+jobs:
+  train-1:
+    uses: ./.github/workflows/phase3-train-job.yml
+    secrets: inherit
+    with:
+      model: ${{ inputs.model }}
+      objective: ${{ inputs.objective }}
+      openfake_per_class: ${{ inputs.openfake_per_class }}
+      defactify_per_class: ${{ inputs.defactify_per_class }}
+      epochs: ${{ inputs.epochs }}
+
+  train-2:
+    needs: train-1
+    if: inputs.jobs != '1' && needs.train-1.outputs.finished != 'true'
+    uses: ./.github/workflows/phase3-train-job.yml
+    secrets: inherit
+    with:
+      model: ${{ inputs.model }}
+      objective: ${{ inputs.objective }}
+      openfake_per_class: ${{ inputs.openfake_per_class }}
+      defactify_per_class: ${{ inputs.defactify_per_class }}
+      epochs: ${{ inputs.epochs }}
+      resume: true
+
+  train-3:
+    needs: train-2
+    if: inputs.jobs == '3' && needs.train-2.outputs.finished != 'true'
+    uses: ./.github/workflows/phase3-train-job.yml
+    secrets: inherit
+    with:
+      model: ${{ inputs.model }}
+      objective: ${{ inputs.objective }}
+      openfake_per_class: ${{ inputs.openfake_per_class }}
+      defactify_per_class: ${{ inputs.defactify_per_class }}
+      epochs: ${{ inputs.epochs }}
+      resume: true
