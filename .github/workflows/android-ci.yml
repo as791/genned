@@ -176,10 +176,17 @@ jobs:
           mkdir -p dist
           cp "$APK" "dist/$NAME"
           (cd dist && sha256sum "$NAME" > SHA256SUMS.txt)
+          # Optional per-version notes: release-notes/<version>.md becomes the "What's new" section.
+          WHATS_NEW=""
+          if [ -f "release-notes/$GENNED_VERSION_NAME.md" ]; then
+            WHATS_NEW="$(printf '## What'"'"'s new\n\n'; cat "release-notes/$GENNED_VERSION_NAME.md")"
+          fi
           cat > "$RUNNER_TEMP/notes.md" <<EOF
           Genned $GENNED_VERSION_NAME: checks on your phone whether an image or video (Reels, Shorts) is likely AI-generated. Android 8.0 or newer.
 
           > This is an estimate, not proof. See "Known accuracy limitations" in the README.
+
+          $WHATS_NEW
 
           ## Install
           1. On your phone, download **$NAME** below and open it.
