@@ -3,7 +3,7 @@
 # (same seed -> same images everywhere). A dataset that fails to fetch is skipped with a
 # warning, not fatal.
 # Usage: tools/fetch_all_eval_data.sh [samples_per_class] [name ...]
-#   names: defactify, mj-dalle-sd-nbp (the default set), openfake
+#   names: defactify, mj-dalle-sd-nbp (the default set), openfake, phone-photos (real only)
 set -u
 PER_CLASS="${1:-250}"
 shift || true
@@ -41,6 +41,15 @@ fetch() {
         --out eval-data/openfake --per-class "$PER_CLASS" \
         --label-col label --ai-values fake --real-values real --generator-col model \
         --max-per-generator $(( (PER_CLASS + 9) / 10 )) --max-scan 40000
+      ;;
+    phone-photos)
+      # Real only: smartphone photos from LAION-Mobile (arXiv 2609.11134; a community MDS
+      # mirror of ~822k images, upstream copyright, evaluation only), kept only when their
+      # EXIF make is a phone brand. Measures how often real phone photos read HIGH; AUC is
+      # n/a. PER_CLASS photos.
+      python tools/fetch_mds_photos.py \
+        --dataset sumathiselvan/LAION-Mobile-streaming \
+        --out eval-data/phone-photos --count "$PER_CLASS"
       ;;
     *)
       echo "::error::unknown dataset $1"

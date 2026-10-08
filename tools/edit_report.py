@@ -29,7 +29,11 @@ def pct(v: float | None) -> str:
 
 
 def row_values(metrics: dict) -> dict:
-    return {"auc": metrics["auc"], "ai_high": metrics["bands_ai"]["high"], "ai_low": metrics["bands_ai"]["low"],
+    """AI-side numbers are None for a real-only dataset (e.g. phone-photos)."""
+    has_ai = metrics.get("n_ai", 1) > 0
+    return {"auc": metrics["auc"],
+            "ai_high": metrics["bands_ai"]["high"] if has_ai else None,
+            "ai_low": metrics["bands_ai"]["low"] if has_ai else None,
             "real_high": metrics["bands_real"]["high"]}
 
 
@@ -65,19 +69,23 @@ def main() -> None:
             v = rows.get((dataset, condition))
             if v is None:
                 continue
-            drop = None if base is None else base["ai_high"] - v["ai_high"]
-            ok = (v["real_high"] <= REAL_HIGH_MAX and v["ai_low"] <= AI_LOW_MAX
+            drop = (None if base is None or v["ai_high"] is None or base["ai_high"] is None
+                    else base["ai_high"] - v["ai_high"])
+            ok = (v["real_high"] <= REAL_HIGH_MAX and (v["ai_low"] is None or v["ai_low"] <= AI_LOW_MAX)
                   and (drop is None or drop <= AI_HIGH_DROP_MAX))
             failures += not ok
-            change = ("–" if base is None or condition == "original"
+            change = ("–" if drop is None or condition == "original"
                       else f"{(v['ai_high'] - base['ai_high']) * 100:+.1f} pts")
             auc = "n/a" if v["auc"] is None else f"{v['auc']:.3f}"
             out.append(f"| {dataset} | {condition} | {auc} | {pct(v['ai_high'])} | {change} | "
                        f"{pct(v['ai_low'])} | {pct(v['real_high'])} | {'pass' if ok else '**fail**'} |")
-            w = worst.setdefault(condition, {"auc": 1.0, "ai_high": 1.0, "ai_low": 0.0, "real_high": 0.0, "drop": 0.0})
-            w["auc"] = min(w["auc"], v["auc"] if v["auc"] is not None else 1.0)
-            w["ai_high"] = min(w["ai_high"], v["ai_high"])
-            w["ai_low"] = max(w["ai_low"], v["ai_low"])
+            w = worst.setdefault(condition, {"auc": None, "ai_high": None, "ai_low": None, "real_high": 0.0,
+                                             "drop": 0.0})
+            if v["auc"] is not None:
+                w["auc"] = v["auc"] if w["auc"] is None else min(w["auc"], v["auc"])
+            if v["ai_high"] is not None:
+                w["ai_high"] = v["ai_high"] if w["ai_high"] is None else min(w["ai_high"], v["ai_high"])
+                w["ai_low"] = v["ai_low"] if w["ai_low"] is None else max(w["ai_low"], v["ai_low"])
             w["real_high"] = max(w["real_high"], v["real_high"])
             w["drop"] = max(w["drop"], drop or 0.0)
 
@@ -86,7 +94,8 @@ def main() -> None:
             "|---|---|---|---|---|---|"]
     for condition in conditions:
         w = worst[condition]
-        out.append(f"| {condition} | {w['auc']:.3f} | {pct(w['ai_high'])} | {w['drop'] * 100:.1f} pts | "
+        auc = "n/a" if w["auc"] is None else f"{w['auc']:.3f}"
+        out.append(f"| {condition} | {auc} | {pct(w['ai_high'])} | {w['drop'] * 100:.1f} pts | "
                    f"{pct(w['ai_low'])} | {pct(w['real_high'])} |")
     out.append(f"\n{failures} dataset x condition cell(s) fail a gate.")
     print("\n".join(out))

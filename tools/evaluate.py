@@ -95,7 +95,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 try:
     import onnxruntime as ort
@@ -364,8 +364,14 @@ def to_tensor(image: Image.Image) -> np.ndarray:
     return np.expand_dims(chw, axis=0).astype(np.float32)
 
 
+def open_image(path: Path) -> Image.Image:
+    """Decodes upright, as ImageLoader.applyExifOrientation does (phone photos rely on it)."""
+    with Image.open(path) as image:
+        return ImageOps.exif_transpose(image).convert("RGB")
+
+
 def preprocess(image_path: Path, condition: str = "original", mode: str = "squash") -> np.ndarray:
-    image = Image.open(image_path).convert("RGB")
+    image = open_image(image_path)
     return to_tensor(to_model_input(app_normalize(degrade(image, condition)), mode))
 
 
@@ -512,7 +518,7 @@ def evaluate_all(
     skipped = 0
     for index, (path, is_ai, generator) in enumerate(labeled, start=1):
         try:
-            image = Image.open(path).convert("RGB")
+            image = open_image(path)
         except Exception as e:  # noqa: BLE001 - one unreadable file must not abort the run
             print(f"Skipping unreadable image {path}: {e}", file=sys.stderr)
             skipped += 1
