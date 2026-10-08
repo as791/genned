@@ -667,14 +667,19 @@ Community Forensics with aug+uat (2,500 + 1,000 images per class, 5 epochs, 4 h 
 **It also trained on Defactify's DALL·E 3 and Midjourney 6 images, so its weights must
 not ship.** The numbers below only show what the recipe does.
 
-Two checkpoints were built:
-- **"best"** = epoch 2, chosen by the validation metric that had the split bug. Ensemble
-  build [37741286499](https://github.com/as791/genned/actions/runs/37741286499).
-- **"final"** = epoch 5. Ensemble build
-  [37734995394](https://github.com/as791/genned/actions/runs/37734995394).
+The epoch-5 weights were built in Ensemble build
+[37734995394](https://github.com/as791/genned/actions/runs/37734995394), read from the
+training state file.
 
-Epoch 2 had barely moved from the shipped weights, and it measures within noise of the
-shipped app everywhere. The epoch-5 results against the shipped ensemble:
+The "best" (epoch 2) build,
+[37741286499](https://github.com/as791/genned/actions/runs/37741286499), **did not load
+its checkpoint**. Its log says `commfor: as published`, so it measured the shipped model
+again. The cause was the artifact layout: the file sat under `runs/` inside the artifact,
+and the build only looked at the top level. Ensemble build now searches the whole
+download and fails if a train run yields no checkpoint. The epoch-2 numbers that were
+reported for it are void.
+
+The epoch-5 results against the shipped ensemble:
 
 | | Shipped | Epoch 5 |
 |---|---|---|
@@ -697,15 +702,17 @@ report.
 - OpenFake under sharpen, screenshot, filter and chain_shot: 10.7–16.7% of AI shown LOW.
 
 **Attacks at 8/255**, worst case over direct / laundered / rescaled. Adversarial eval
-[37741292260](https://github.com/as791/genned/actions/runs/37741292260); epoch 2 in
-[37747113677](https://github.com/as791/genned/actions/runs/37747113677).
+[37741292260](https://github.com/as791/genned/actions/runs/37741292260). The shipped
+column is the #16 baseline. A repeat run on the shipped model,
+[37747113677](https://github.com/as791/genned/actions/runs/37747113677) (the void "epoch 2"
+run), gave 78.3% / 31.7%, 100% / 25% and 80 / 56.7%: the run-to-run spread is a few points.
 
-| Threat | Shipped | Epoch 5 | Epoch 2 | Gate |
-|---|---|---|---|---|
-| Universal pattern: evasion / framing | 75% / 33% | **53.3% / 1.7%** | 78.3% / 31.7% | ≤ 20%: fail |
-| Transfer from open detectors: evasion / framing | 98% / 25% | 93.3% / 0% | 100% / 25% | ≤ 30%: fail |
-| Square black box: direct / laundered | 80 / 57% | 60 / 36.7% | 80 / 56.7% | reported |
-| White box, per image | 100% | 100% | 100% | reported |
+| Threat | Shipped | Epoch 5 | Gate |
+|---|---|---|---|
+| Universal pattern: evasion / framing | 75% / 33% | **53.3% / 1.7%** | ≤ 20%: fail |
+| Transfer from open detectors: evasion / framing | 98% / 25% | 93.3% / 0% | ≤ 30%: fail |
+| Square black box: direct / laundered | 80 / 57% | 60 / 36.7% | reported |
+| White box, per image | 100% | 100% | reported |
 
 Reading:
 - The recipe moves the right numbers. Accuracy on newer generators, everyday edits,

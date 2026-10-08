@@ -78,23 +78,32 @@ jobs:
           BUNDLED_CHECKPOINT: ${{ inputs.bundled_checkpoint }}
           COMMFOR_CHECKPOINT: ${{ inputs.commfor_checkpoint }}
           WEIGHTS: ${{ inputs.checkpoint_weights }}
+          RUN_ID: ${{ inputs.checkpoint_run_id }}
         run: |
           # Checkpoints from a train run fill in whichever model wasn't given explicitly:
           # best = the validation-selected *-robust-p3.pt; final = *-final-p3.pt, or the last
           # weights inside *-state-p3.pt for runs made before final weights were saved.
+          # Artifacts can keep their runs/ folder, so search the whole download.
+          find_one() { find checkpoints -type f -name "$1" 2>/dev/null | sort | head -1; }
           pick() {
-            if [ "$WEIGHTS" = "final" ]; then
-              for f in "checkpoints/$1-final-p3.pt" "checkpoints/$1-state-p3.pt"; do
-                [ -f "$f" ] && { echo "$f"; return; }
-              done
-            elif [ -f "checkpoints/$1-robust-p3.pt" ]; then
-              echo "checkpoints/$1-robust-p3.pt"
-            fi
+            local names=("$1-robust-p3.pt")
+            [ "$WEIGHTS" = "final" ] && names=("$1-final-p3.pt" "$1-state-p3.pt")
+            for name in "${names[@]}"; do
+              f="$(find_one "$name")"
+              [ -n "$f" ] && { echo "$f"; return 0; }
+            done
             return 0  # no checkpoint for this model: keep it as shipped (not an error under bash -e)
           }
+          if [ -n "$RUN_ID" ]; then
+            echo "Downloaded from train run $RUN_ID:"; find checkpoints -type f | sort
+          fi
           [ -z "$BUNDLED_CHECKPOINT" ] && BUNDLED_CHECKPOINT="$(pick bundled)"
           [ -z "$COMMFOR_CHECKPOINT" ] && COMMFOR_CHECKPOINT="$(pick commfor)"
           echo "bundled: ${BUNDLED_CHECKPOINT:-as shipped}; commfor: ${COMMFOR_CHECKPOINT:-as published}"
+          # A train run whose checkpoints weren't found must not pass as a fine-tuned build.
+          if [ -n "$RUN_ID" ] && [ -z "$BUNDLED_CHECKPOINT$COMMFOR_CHECKPOINT" ]; then
+            echo "::error::No $WEIGHTS checkpoint found in train run $RUN_ID's artifacts"; exit 1
+          fi
           mkdir -p eval-results
           args=(--dataset eval-data/defactify --out model-assets --report eval-results/parity.md)
           if [ -n "$BUNDLED_CHECKPOINT" ]; then
