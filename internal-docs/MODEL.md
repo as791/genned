@@ -659,6 +659,64 @@ transfer 87% / 82%.
 - **Kaggle GPU:** `notebooks/robust_finetune_kaggle.ipynb`, faster but needs someone to
   run it.
 
+**First CPU run: reference only, not shippable**
+
+Run [37683278539](https://github.com/as791/genned/actions/runs/37683278539) trained
+Community Forensics with aug+uat (2,500 + 1,000 images per class, 5 epochs, 4 h 11 min).
+
+**It also trained on Defactify's DALL·E 3 and Midjourney 6 images, so its weights must
+not ship.** The numbers below only show what the recipe does.
+
+Two checkpoints were built:
+- **"best"** = epoch 2, chosen by the validation metric that had the split bug. Ensemble
+  build [37741286499](https://github.com/as791/genned/actions/runs/37741286499).
+- **"final"** = epoch 5. Ensemble build
+  [37734995394](https://github.com/as791/genned/actions/runs/37734995394).
+
+Epoch 2 had barely moved from the shipped weights, and it measures within noise of the
+shipped app everywhere. The epoch-5 results against the shipped ensemble:
+
+| | Shipped | Epoch 5 |
+|---|---|---|
+| Photos AUC: Defactify / MJ-DALL·E-SD-NBP | 0.991 / 0.778 | 0.996 / 0.830 |
+| Photos: AI caught @5% false alarms, same two datasets | 94.8% / 33.9% | 98.0% / 44.4% |
+| Video AUC: DeepAction / DF26 | 0.958 / 0.746 | **0.892** / 0.821 |
+| Worst case over photos + video | 30% | 44.4% |
+| Real shown HIGH at app bands: photos / video | 2.8% / 2.0% | 4.0% / 0% |
+| OpenFake (2025–26 generators) AUC | 0.863 | 0.923 |
+| Edit cells failing a gate (3 datasets × 17 conditions) | 17 | 11 |
+| Real shown HIGH after WebP q50: Defactify / MJ set / OpenFake | 11.3 / 14.7 / 14.0% | 2.0 / 10.7 / 0.0% |
+
+Sources: Robustness eval
+[37741289392](https://github.com/as791/genned/actions/runs/37741289392) and the build
+report.
+
+**Edits still failing:**
+- grain and sharpen: AI shown HIGH drops 17–25 points;
+- the MJ set under webp50 (10.7% real shown HIGH) and noise4 (5.3%);
+- OpenFake under sharpen, screenshot, filter and chain_shot: 10.7–16.7% of AI shown LOW.
+
+**Attacks at 8/255**, worst case over direct / laundered / rescaled. Adversarial eval
+[37741292260](https://github.com/as791/genned/actions/runs/37741292260); epoch 2 in
+[37747113677](https://github.com/as791/genned/actions/runs/37747113677).
+
+| Threat | Shipped | Epoch 5 | Epoch 2 | Gate |
+|---|---|---|---|---|
+| Universal pattern: evasion / framing | 75% / 33% | **53.3% / 1.7%** | 78.3% / 31.7% | ≤ 20%: fail |
+| Transfer from open detectors: evasion / framing | 98% / 25% | 93.3% / 0% | 100% / 25% | ≤ 30%: fail |
+| Square black box: direct / laundered | 80 / 57% | 60 / 36.7% | 80 / 56.7% | reported |
+| White box, per image | 100% | 100% | 100% | reported |
+
+Reading:
+- The recipe moves the right numbers. Accuracy on newer generators, everyday edits,
+  universal framing (33% → 1.7%) and black-box queries all improve.
+- Universal evasion and open-detector transfer still fail their gates.
+- **Video gets worse:** DeepAction AUC falls 0.066, against a gate of ≤ 0.02. Phase 3
+  training has no video frames.
+- The open-weights retrain
+  ([37747738638](https://github.com/as791/genned/actions/runs/37747738638)) is the
+  candidate that can ship.
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace
