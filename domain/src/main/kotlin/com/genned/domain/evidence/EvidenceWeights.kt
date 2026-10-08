@@ -28,20 +28,19 @@ object EvidenceWeights {
     /**
      * aiLikelihood >= this -> [com.genned.domain.model.Classification.HIGH].
      *
-     * Chosen from data by tools/calibrate.py (Model eval run 36185656205) on calibrated
-     * classifier scores. It is the lowest threshold at which at most 5% of real images
-     * show HIGH in every benchmark dataset x condition (worst case 2.8%). With 0.70,
-     * up to 39% of real images in the harder dataset showed HIGH.
+     * Chosen from data by tools/calibrate.py: the lowest threshold at which at most 5% of
+     * real images show HIGH in every benchmark dataset x condition. For the shipped models
+     * (photos: Ensemble build run 37787974107; video: run 36196623887) the worst case at
+     * 0.90 is 4.0% of real photos and 2.0% of real videos. With 0.70, up to 39% of real
+     * images in the harder dataset showed HIGH (first model, run 36185656205).
      */
     const val HIGH_THRESHOLD = 0.90f
 
     /**
      * aiLikelihood < this -> [com.genned.domain.model.Classification.LOW]; between the two
      * is UNCERTAIN. Chosen the same way: the highest threshold at which at most 10% of
-     * AI content shows LOW. For the shipped ensemble (Ensemble build run 36196623887) that
-     * is 0.15 for both photos (worst case 10.0%) and video (9.0%); at 0.25, 17-18% of AI
-     * content read LOW. [HIGH_THRESHOLD] still holds for the ensemble: 2.8% of real photos
-     * and 2.0% of real videos show HIGH.
+     * AI content shows LOW. At 0.15 the worst case is 7.6% of AI photos and 9.0% of AI
+     * videos (same runs); at 0.25, 17-18% of AI content read LOW with the first ensemble.
      */
     const val LOW_THRESHOLD = 0.15f
 

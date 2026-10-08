@@ -795,6 +795,68 @@ Reading:
 - Video needs its own training data (open video frames) before it can share the
   fine-tuned weights.
 
+### Thresholds and real-world inputs (after v0.2.0)
+
+**How the bands are set.** `tools/calibrate.py` picks both from benchmark data:
+- HIGH is the lowest cut-off where at most 5% of real images show HIGH, in every
+  dataset × condition.
+- LOW is the highest cut-off where at most 10% of AI images show LOW.
+
+The rule is lopsided on purpose: calling a real photo AI is the worse mistake. For
+v0.2.0 the bands are **HIGH ≥ 0.90** and **LOW < 0.15**:
+
+| Path | Real shown HIGH (worst) | AI shown LOW (worst) | Runs |
+|---|---|---|---|
+| Photos | 4.0% | 7.6% | Ensemble build 37787974107 |
+| Video | 2.0% | 9.0% | Ensemble build 36196623887 |
+
+Everything in between is UNCERTAIN.
+
+**Shared screenshots** ([Robustness eval 37835245126](https://github.com/as791/genned/actions/runs/37835245126)).
+
+Until now, a screenshot file was classified whole, status bar and captions included.
+`app_screenshot` simulates that: the image laid out as a 1080×2400 social-app
+screenshot. `app_screenshot_crop` is the same screenshot after the app's new picture
+crop (`ScreenshotCrop.kt`, mirrored in `tools/screenshot_crop.py`). Results for the app
+ensemble, 150 AI + 150 real images per dataset (Defactify / MJ set / OpenFake):
+
+| Condition | AUC | AI shown HIGH | AI shown LOW | Real shown HIGH | Gates |
+|---|---|---|---|---|---|
+| original | 0.992 / 0.854 / 0.925 | 66.0 / 39.3 / 44.7% | 2.0 / 3.3 / 4.7% | 0.0 / 3.3 / 0.7% | pass |
+| app_screenshot (before) | 0.967 / 0.826 / 0.900 | 62.0 / **24.7** / 37.3% | 1.3 / 6.7 / 6.7% | 0.0 / 0.7 / 0.7% | MJ set fails (−14.7 pts) |
+| app_screenshot_crop (now) | 0.981 / 0.846 / 0.915 | 71.3 / 36.7 / 46.0% | 1.3 / 4.0 / 6.7% | 0.0 / 3.3 / 1.3% | pass |
+
+Classifying the whole screen pushed obvious AI into UNCERTAIN. The crop recovers the
+unedited numbers.
+
+**Real phone photos** ([Robustness eval 37836666781](https://github.com/as791/genned/actions/runs/37836666781)).
+
+None of the other real sets (COCO, ImageNet, DOCCI) are modern phone photos, so this set
+was added. `phone-photos` is 300 random photos from LAION-Mobile
+(`sumathiselvan/LAION-Mobile-streaming`, a community MDS mirror; 375 of 458 shards
+present), kept only when their EXIF make is a phone brand: Apple 197, Samsung 70,
+Huawei 22, Xiaomi 9, Oppo 2. It is real-only, so AUC is n/a.
+
+- **Real shown HIGH: 3.0% unedited; worst 4.7% (crop80).** Every one of the 19
+  conditions is at or under the 5% rule, including WebP (3.7%), the screenshot crop
+  (4.3%) and the filter chain (4.0%). HIGH stays at 0.90.
+- **Phone photos sit higher than the curated real sets.** Unedited, 27% score ≥ 0.5,
+  against 1.3% for COCO (Defactify) and 8% for ImageNet / DOCCI (OpenFake). The MJ set's
+  "real" images, whose source is unverified, are at 35%. Score bins:
+
+  | Score | 0–0.1 | 0.1–0.2 | 0.2–0.5 | 0.5–0.9 | ≥ 0.9 |
+  |---|---|---|---|---|---|
+  | Photos | 86 | 52 | 80 | 73 | 9 |
+
+  So roughly 30–45% read LOW and 50–65% UNCERTAIN; HIGH is 3%. That matches "too many
+  UNCERTAIN" on real phone photos. The cause is the score distribution, not the cut-off:
+  - LOW is set by the AI side (AI shown LOW ≤ 10%), so it can't move without letting
+    more AI read LOW;
+  - the fix is calibration or training that includes phone photos as real, which needs
+    its own measurement before it changes anything.
+- Community Forensics alone: 4.0% real shown HIGH (worst 8.7% under a filter). The
+  ensemble is the safer of the two.
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace
