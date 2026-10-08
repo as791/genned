@@ -103,8 +103,8 @@ def main() -> None:
     parser.add_argument("--label-col", default=None)
     parser.add_argument("--generator-col", default=None)
     parser.add_argument("--exclude-generators", default=None,
-                        help="Skip rows whose --generator-col value matches this regex (case-insensitive), e.g. "
-                             "generators whose images may not be used for training")
+                        help="Skip rows whose generator (its --generator-names name for integer ids) matches this "
+                             "regex (case-insensitive), e.g. generators whose images may not be used for training")
     parser.add_argument("--max-per-generator", type=int, default=None,
                         help="Cap AI images per generator, so a dataset with many generators (as a free-text "
                              "column) isn't dominated by its most common one")
@@ -200,16 +200,20 @@ def main() -> None:
             return generator_names[raw]
         return str(raw)
 
-    ai_generators = [g for g in (generator_names or []) if g.lower() != "real"]
+    if args.exclude_generators and generator_col is None:
+        fail("--exclude-generators needs --generator-col.", features)
+    exclude = re.compile(args.exclude_generators, re.IGNORECASE) if args.exclude_generators else None
+
+    # Excluded generators get no share of the AI quota, so the kept ones fill it.
+    ai_generators = [g for g in (generator_names or [])
+                     if g.lower() != "real" and not (exclude and exclude.search(g))]
+    if exclude is not None and generator_names is not None:
+        print(f"Excluded generators: {[g for g in generator_names if exclude.search(g)] or 'none'}")
     per_generator_quota = (
         math.ceil(args.per_class / len(ai_generators)) if ai_generators else args.per_class
     )
     if args.max_per_generator:
         per_generator_quota = min(per_generator_quota, args.max_per_generator)
-
-    if args.exclude_generators and generator_col is None:
-        fail("--exclude-generators needs --generator-col.", features)
-    exclude = re.compile(args.exclude_generators, re.IGNORECASE) if args.exclude_generators else None
 
     ds = ds.cast_column(image_col, HFImage(decode=False)).shuffle(seed=args.seed, buffer_size=300)
 
@@ -233,7 +237,7 @@ def main() -> None:
             if scanned % 250 == 0 or time.time() - last_report >= 30:
                 report()
                 last_report = time.time()
-            if exclude is not None and exclude.search(str(row[generator_col])):
+            if exclude is not None and exclude.search(generator_of(row)):
                 excluded += 1
                 continue
             label_is_ai = is_ai(row[label_col])

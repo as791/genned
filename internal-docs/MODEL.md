@@ -634,8 +634,15 @@ transfer 87% / 82%.
   random crops and rescales.
 - **Validation:** clean AUC, AUC under six edits, and robustness to a *fresh*
   universal pattern fit on held-out validation images.
-- **Data:** OpenFake train restricted to open-weights generators
-  (`--exclude-generators`), plus Defactify train.
+- **Data:** open-weights generators only. That means OpenFake train and Defactify train
+  (SD 2.1, SDXL, SD3 and real photos), with the same `--exclude-generators` list on
+  both. The workflow fails if a proprietary generator's folder appears in the training
+  data.
+  - The first CPU run
+    ([37683278539](https://github.com/as791/genned/actions/runs/37683278539)) still
+    trained on Defactify's DALL·E 3 and Midjourney 6 images. The exclusion matched
+    Defactify's integer generator ids instead of their names, and only OpenFake had it.
+    Its weights must not ship; they are kept as a reference measurement only.
 - **Safeguards:** the Phase 2b clean gate and collapse guard still apply.
 
 **Where to train:**

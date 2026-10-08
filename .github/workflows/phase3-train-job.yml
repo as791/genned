@@ -69,11 +69,16 @@ jobs:
           fetch --dataset Rajarshi-Roy-research/Defactify_Image_Dataset --split train --strict-split \
             --out data/train/defactify --per-class "$DEFACTIFY_PER_CLASS" --max-scan 25000 \
             --label-col Label_A --ai-values 1 --real-values 0 \
-            --generator-col Label_B --generator-names real,sd21,sdxl,sd3,dalle3,midjourney6
+            --generator-col Label_B --generator-names real,sd21,sdxl,sd3,dalle3,midjourney6 \
+            --exclude-generators "$PROPRIETARY"
           fetch --dataset ComplexDataLab/OpenFake --config core --split validation --strict-split \
             --out data/val/openfake --per-class 150 \
             --label-col label --ai-values fake --real-values real --generator-col model \
             --exclude-generators "$PROPRIETARY" --max-per-generator 15 --max-scan 20000
+          # Fail loudly if a proprietary generator's images still reached the training data.
+          if ls -d data/*/*/ai/*/ | grep -i -E "$PROPRIETARY"; then
+            echo "::error::Proprietary-generator images found in the training data"; exit 1
+          fi
           du -sh data/train/* data/val/*
 
       - name: Download the previous job's training state
