@@ -31,7 +31,7 @@ object OpenSourceLicenses {
             licenseText = R.raw.license_apache_2_0,
         ),
         OpenSourceComponent(
-            name = "Community Forensics ViT-S 224 (bundled AI-image detector model)",
+            name = "Community Forensics ViT-S 224 (bundled AI-image detector model, as published and fine-tuned)",
             license = MIT,
             copyright = "Copyright (c) 2025 Jeongsoo Park",
             url = "https://huggingface.co/OwensLab/commfor-model-224",

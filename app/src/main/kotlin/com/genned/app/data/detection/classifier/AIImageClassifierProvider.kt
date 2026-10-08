@@ -22,21 +22,23 @@ import java.nio.FloatBuffer
  * Runs the bundled on-device AI-generated-image classifiers via ONNX Runtime Mobile.
  * See internal-docs/MODEL.md for the model cards and the benchmarks behind every constant.
  *
- * Two models, both shipped as app assets ([ModelAssets]):
+ * Models shipped as app assets ([ModelAssets]):
  * - the primary detector ([ModelConfig]), run on two views of the image;
- * - Community Forensics ViT-S 224 ([CommunityForensicsConfig]).
+ * - Community Forensics ViT-S 224 ([CommunityForensicsConfig]) in two copies: the Phase 3
+ *   fine-tuned weights for photos ([analyze]) and the published weights for video frames
+ *   ([videoFrames]). The fine-tuned copy catches far more AI photos but is worse on video.
  *
- * When both load, the result is their ensemble ([EnsembleConfig]). They make different
- * mistakes (the primary catches more AI photos, Community Forensics is far stronger on
- * video and rarely flags real content), so combined they beat either alone on photos and
- * on video. If the second model is missing or fails to load, the primary runs alone with
- * its own calibration. If the primary is missing, [analyze] honestly reports
- * [SignalAvailability.UNAVAILABLE] rather than fabricating a score.
+ * When the primary and the matching Community Forensics copy load, the result is their
+ * ensemble ([EnsembleConfig]). They make different mistakes (the primary catches more AI
+ * photos, Community Forensics is far stronger on video and rarely flags real content), so
+ * combined they beat either alone. If a Community Forensics copy is missing or fails to
+ * load, the primary runs alone with its own calibration. If the primary is missing, both
+ * paths honestly report [SignalAvailability.UNAVAILABLE] rather than fabricating a score.
  *
- * Sessions are created lazily on first use and cached for the app's lifetime; inference
- * always runs off the main thread. Each signal carries its uncalibrated evidence in
- * [DetectionSignal.rawScore] so video frames can be combined before calibration
- * ([videoProbability]).
+ * Sessions are created lazily on first use (the video copy on the first video) and cached
+ * for the app's lifetime; inference always runs off the main thread. Each signal carries
+ * its uncalibrated evidence in [DetectionSignal.rawScore] so video frames can be combined
+ * before calibration ([videoProbability]).
  */
 class AIImageClassifierProvider(private val context: Context) : DetectionProvider {
     override val signalType: SignalType = SignalType.AI_CLASSIFIER
@@ -44,13 +46,32 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
     private val sessionMutex = Mutex()
     private var primarySession: OrtSession? = null
     private var communityForensicsSession: OrtSession? = null
+    private var videoCommunityForensicsSession: OrtSession? = null
     private var sessionInitAttempted = false
+    private var videoSessionInitAttempted = false
 
-    /** True once both models are loaded and results come from the ensemble. */
+    /** True once photo results come from the ensemble. */
     val ensembleActive: Boolean get() = primarySession != null && communityForensicsSession != null
 
-    override suspend fun analyze(image: AnalysisInput): DetectionSignal = withContext(Dispatchers.Default) {
+    /** True once video frames are scored by the ensemble. */
+    val videoEnsembleActive: Boolean get() = primarySession != null && videoCommunityForensicsSession != null
+
+    /** Photos (and screen captures): the primary + fine-tuned Community Forensics ensemble. */
+    override suspend fun analyze(image: AnalysisInput): DetectionSignal = classify(image, video = false)
+
+    /**
+     * Video frames: the primary + published Community Forensics ensemble. Pass this to the
+     * video pipeline, and calibrate the mean frame score with [videoProbability].
+     */
+    val videoFrames: DetectionProvider = object : DetectionProvider {
+        override val signalType: SignalType = this@AIImageClassifierProvider.signalType
+        override suspend fun analyze(image: AnalysisInput): DetectionSignal = classify(image, video = true)
+    }
+
+    private suspend fun classify(image: AnalysisInput, video: Boolean): DetectionSignal = withContext(Dispatchers.Default) {
         initSessions()
+        if (video) initVideoSession()
+        val communityForensics = if (video) videoCommunityForensicsSession else communityForensicsSession
         val primary = primarySession
             ?: return@withContext DetectionSignal.unavailable(
                 signalType,
@@ -68,7 +89,7 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
                 squashed(bitmap, ModelConfig.INPUT_SIZE),
                 centerCropped(bitmap, ModelConfig.INPUT_SIZE, ModelConfig.INPUT_SIZE),
             )
-            val communityForensicsInput = communityForensicsSession?.let { communityForensicsView(bitmap) }
+            val communityForensicsInput = communityForensics?.let { communityForensicsView(bitmap) }
             bitmap.recycle()
 
             // Primary: two views, averaged in logit space - measured to beat either view alone.
@@ -79,7 +100,7 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
             }
             val communityForensicsGap = communityForensicsInput?.let { input ->
                 runModel(
-                    communityForensicsSession!!, input, CommunityForensicsConfig.INPUT_SIZE,
+                    communityForensics!!, input, CommunityForensicsConfig.INPUT_SIZE,
                     CommunityForensicsConfig.INPUT_SHAPE, CommunityForensicsConfig.INPUT_NAME,
                 ).let(CommunityForensicsConfig::logit).also { input.recycle() }
             }
@@ -88,8 +109,13 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
             }
             val primaryGap = primaryGaps.filterNotNull().average()
 
-            val (rawScore, aiProbability) = if (communityForensicsGap != null) {
-                val combined = EnsembleConfig.combine(primaryGap, communityForensicsGap)
+            // A video frame's score is only shown per frame; the video's score comes from the
+            // mean rawScore through videoProbability.
+            val (rawScore, aiProbability) = if (communityForensicsGap != null && video) {
+                val combined = EnsembleConfig.combineVideo(primaryGap, communityForensicsGap)
+                combined to EnsembleConfig.videoProbability(combined)
+            } else if (communityForensicsGap != null) {
+                val combined = EnsembleConfig.combinePhoto(primaryGap, communityForensicsGap)
                 combined to EnsembleConfig.photoProbability(combined)
             } else {
                 primaryGap to ModelConfig.calibratedProbability(primaryGap)
@@ -119,7 +145,7 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
      * for video with whichever model setup produced those frames.
      */
     fun videoProbability(meanRawScore: Double): Float =
-        if (ensembleActive) EnsembleConfig.videoProbability(meanRawScore)
+        if (videoEnsembleActive) EnsembleConfig.videoProbability(meanRawScore)
         else ModelConfig.videoCalibratedProbability(meanRawScore)
 
     private suspend fun initSessions() {
@@ -131,6 +157,18 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
             // The ensemble partner is only useful alongside the primary model.
             if (primarySession != null) communityForensicsSession = loadSession(ModelAssets.COMMUNITY_FORENSICS_ASSET_PATH)
             Log.i(TAG, "Classifier ready: primary=${primarySession != null} ensemble=$ensembleActive")
+        }
+    }
+
+    private suspend fun initVideoSession() {
+        if (videoSessionInitAttempted) return
+        sessionMutex.withLock {
+            if (videoSessionInitAttempted) return
+            videoSessionInitAttempted = true
+            if (primarySession != null) {
+                videoCommunityForensicsSession = loadSession(ModelAssets.VIDEO_COMMUNITY_FORENSICS_ASSET_PATH)
+            }
+            Log.i(TAG, "Video classifier ready: ensemble=$videoEnsembleActive")
         }
     }
 

@@ -54,7 +54,7 @@ class AppContainer(context: Context) {
     val analyzeVideoUseCase by lazy {
         AnalyzeVideoUseCase(
             frameSampler = videoFrameSampler,
-            classifierProvider = classifierProvider,
+            classifierProvider = classifierProvider.videoFrames,
             watermarkProvider = watermarkProvider,
             evidenceEngine = evidenceEngine,
             historyRepository = historyRepository,

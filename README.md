@@ -183,17 +183,22 @@ only ever bundled at build time.
   Activity/Lifecycle): Apache-2.0.
 - ONNX Runtime Mobile (`com.microsoft.onnxruntime:onnxruntime-android`): MIT.
 - Bundled classifier models: `Dafilab/ai-image-detector` (Apache-2.0) and
-  Community Forensics ViT-S 224 (`OwensLab/commfor-model-224`, MIT; Park & Owens, CVPR 2025).
+  Community Forensics ViT-S 224 (`OwensLab/commfor-model-224`, MIT; Park & Owens, CVPR 2025),
+  as published and as a copy fine-tuned for photos by this project (MIT). The fine-tuning
+  used images from OpenFake (`ComplexDataLab/OpenFake`, CC-BY-SA-4.0, open-weights
+  generators only) and the Defactify dataset.
 - `contentauth/c2pa-android` (referenced, not bundled): dual MIT/Apache-2.0.
 
 ## Known accuracy limitations
 
 - **The visual classifier ships with the app.** It is an ensemble of two
   on-device models, `Dafilab/ai-image-detector` and Community Forensics ViT-S
-  224, about 79 MB together, in `app/src/main/assets/models/`. Combined, they
-  beat either model alone. On the harder photo benchmark they catch 34% of AI
+  224, in `app/src/main/assets/models/` (about 122 MB). Photos use a copy of
+  Community Forensics fine-tuned on newer generators and everyday edits; video
+  keeps the published weights, which are better on video. Combined, the models
+  beat either one alone. On the harder photo benchmark they catch 45% of AI
   images at a 5% false-alarm rate (the single model caught 30%); on the easier
-  one, 95% (it caught 73%). If a model file is ever missing from a build, the
+  one, 97% (it caught 73%). If a model file is ever missing from a build, the
   app falls back to the remaining model, or reports the classifier as
   unavailable, rather than faking a score.
 - **Measured accuracy is moderate.** On two public real-vs-AI image datasets

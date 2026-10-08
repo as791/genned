@@ -114,11 +114,18 @@ APP_CALIBRATION = (0.2252, 0.0494)
 # Video path (VideoSignalAggregator): mean per-frame logit gap -> this calibration.
 # Keep in sync with ModelConfig.VIDEO_CALIBRATION_* (fit on Video eval run 36190406439).
 APP_VIDEO_CALIBRATION = (0.2071, -1.3977)
-# The shipped ensemble (EnsembleConfig.kt), fit by tools/ensemble_calibrate.py in Ensemble
-# build run 36196623887. Keep in sync with EnsembleConfig.
+# The shipped ensembles (EnsembleConfig.kt). Keep in sync with EnsembleConfig.
+# Photos: primary + the Phase 3 fine-tuned Community Forensics (models/commfor-224.onnx),
+# fit by tools/ensemble_calibrate.py in Ensemble build run 37787974107.
 APP_ENSEMBLE = {
+    "mean_d": -0.40238, "std_d": 7.98345, "mean_c": -1.26874, "std_c": 6.00447,
+    "photo": (3.26446, 0.02569),
+}
+# Video frames: primary + the published Community Forensics (models/commfor-224-video.onnx),
+# fit in Ensemble build run 36196623887.
+APP_VIDEO_ENSEMBLE = {
     "mean_d": -0.38708, "std_d": 8.00114, "mean_c": -3.96926, "std_c": 4.37424,
-    "photo": (3.19350, 0.16339), "video": (3.49213, -1.85881),
+    "video": (3.49213, -1.85881),
 }
 
 
