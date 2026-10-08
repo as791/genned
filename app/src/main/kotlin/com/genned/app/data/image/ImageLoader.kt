@@ -4,8 +4,13 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.Point
+import android.hardware.display.DisplayManager
 import android.net.Uri
+import android.provider.OpenableColumns
+import android.view.Display
 import androidx.exifinterface.media.ExifInterface
+import com.genned.domain.model.CropRect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -29,6 +34,8 @@ data class NormalizedImage(
     val heightPx: Int,
     val originalMimeType: String?,
     val fileSizeBytes: Long,
+    /** For a shared screenshot: the picture inside it, in normalized-image pixels. */
+    val classifierCrop: CropRect? = null,
 )
 
 /**
@@ -76,6 +83,17 @@ class ImageLoader(private val context: Context) {
         val orientedBitmap = applyExifOrientation(originalFile, rawBitmap)
         val boundedBitmap = downscaleIfNeeded(orientedBitmap, MAX_DIMENSION_PX)
 
+        val screen = screenSize()
+        val screenshot = ScreenshotCrop.isLikelyScreenshot(
+            displayName = displayName(uri),
+            hasCameraExif = hasCameraExif(originalFile),
+            width = bounds.outWidth,
+            height = bounds.outHeight,
+            screenWidth = screen?.first,
+            screenHeight = screen?.second,
+        )
+        val classifierCrop = if (screenshot) pictureRegion(boundedBitmap) else null
+
         val outFile = File(sharedCacheDir(context), "normalized_${UUID.randomUUID()}.jpg")
         createdFiles += outFile
         FileOutputStream(outFile).use { out ->
@@ -94,7 +112,49 @@ class ImageLoader(private val context: Context) {
             heightPx = height,
             originalMimeType = mimeType,
             fileSizeBytes = originalFile.length(),
+            classifierCrop = classifierCrop,
         )
+    }
+
+    /** The picture inside a screenshot ([ScreenshotCrop]), measured on a small copy. */
+    private fun pictureRegion(bitmap: Bitmap): CropRect? = try {
+        val (gridWidth, gridHeight) = ScreenshotCrop.gridSize(bitmap.width, bitmap.height)
+        val small = Bitmap.createScaledBitmap(bitmap, gridWidth, gridHeight, true)
+        val grid = IntArray(gridWidth * gridHeight)
+        small.getPixels(grid, 0, gridWidth, 0, 0, gridWidth, gridHeight)
+        if (small !== bitmap) small.recycle()
+        ScreenshotCrop.classifierRegion(grid, gridWidth, gridHeight, bitmap.width, bitmap.height)
+    } catch (e: Exception) {
+        null // Classify the whole image rather than fail the analysis.
+    }
+
+    private fun displayName(uri: Uri): String? = try {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    /** Camera photos carry the camera's make or model; screenshots don't. */
+    private fun hasCameraExif(file: File): Boolean = try {
+        val exif = ExifInterface(file)
+        !exif.getAttribute(ExifInterface.TAG_MAKE).isNullOrBlank() ||
+            !exif.getAttribute(ExifInterface.TAG_MODEL).isNullOrBlank()
+    } catch (e: Exception) {
+        false
+    }
+
+    /** This phone's full screen size in pixels (status and navigation bars included). */
+    private fun screenSize(): Pair<Int, Int>? = try {
+        // DisplayManager works from any Context (WindowManager wants a visual one).
+        val display = context.getSystemService(DisplayManager::class.java).getDisplay(Display.DEFAULT_DISPLAY)
+        val size = Point()
+        @Suppress("DEPRECATION")
+        display.getRealSize(size)
+        size.x to size.y
+    } catch (e: Exception) {
+        null
     }
 
     /**

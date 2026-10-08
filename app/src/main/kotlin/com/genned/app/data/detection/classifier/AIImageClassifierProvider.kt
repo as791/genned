@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import com.genned.domain.model.AnalysisInput
+import com.genned.domain.model.CropRect
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
@@ -79,11 +80,19 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
             )
 
         try {
-            val bitmap = BitmapFactory.decodeFile(image.normalizedFilePath)
+            val decoded = BitmapFactory.decodeFile(image.normalizedFilePath)
                 ?: return@withContext DetectionSignal.error(
                     signalType,
                     "Could not decode the normalized image for classification.",
                 )
+            // A shared screenshot: classify only the picture inside it, not the app around it.
+            val crop = image.classifierCrop?.takeIf { it.fitsIn(decoded.width, decoded.height) }
+            val bitmap = if (crop != null) {
+                Bitmap.createBitmap(decoded, crop.left, crop.top, crop.width, crop.height)
+                    .also { if (it !== decoded) decoded.recycle() }
+            } else {
+                decoded
+            }
             // All inputs are prepared before the source bitmap is released.
             val primaryViews = listOf(
                 squashed(bitmap, ModelConfig.INPUT_SIZE),
@@ -130,7 +139,8 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
                 confidence = ModelConfig.BASE_CONFIDENCE,
                 description = "The on-device visual classifier estimates a " +
                     "${(aiProbability * 100).toInt()}% probability this image is " +
-                    "AI-generated.",
+                    "AI-generated." +
+                    if (crop != null) " This looks like a screenshot, so only the picture in it was checked." else "",
                 evidence = if (communityForensicsGap != null) EnsembleConfig.DISPLAY_NAME else ModelConfig.DISPLAY_NAME,
                 rawScore = rawScore,
             )
@@ -209,6 +219,8 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
 
     private companion object {
         const val TAG = "AIImageClassifier"
+
+        fun CropRect.fitsIn(width: Int, height: Int): Boolean = left + this.width <= width && top + this.height <= height
     }
 
     /** The whole image resized to size x size, ignoring aspect ratio. */

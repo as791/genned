@@ -13,6 +13,10 @@ package com.genned.domain.model
  * - [normalizedFilePath] is orientation-corrected, downscaled, and re-encoded as
  *   JPEG for fast, memory-bounded preview and classifier input. Re-encoding strips
  *   metadata, so this file must never be used for metadata/provenance inspection.
+ *
+ * [classifierCrop], when set, is the part of the normalized image the visual classifier
+ * should look at (the picture inside a shared screenshot); everything else still sees
+ * the whole image.
  */
 data class AnalysisInput(
     val originalFilePath: String,
@@ -21,4 +25,5 @@ data class AnalysisInput(
     val widthPx: Int,
     val heightPx: Int,
     val fileSizeBytes: Long,
+    val classifierCrop: CropRect? = null,
 )

@@ -51,6 +51,11 @@ what simple "beat AI detectors" tools do. They need no knowledge of the model:
                  saved as PNG (a screenshot that is then shared)
     chain_filter filter -> rescale -> social
     chain_shot   noise4 -> screenshot -> social
+    app_screenshot       a saved screenshot of a social app (light or dark theme): status
+                         bar, app bar, post header, the image full width, action icons,
+                         caption and comment text, bottom navigation; PNG
+    app_screenshot_crop  app_screenshot, then cropped to the picture the way the app does
+                         for a shared screenshot (tools/screenshot_crop.py)
 Random edits are seeded per image, so every run sees the same pixels.
 
 Every condition then goes through the app's own normalization, exactly as
@@ -146,7 +151,8 @@ def ensemble_score(primary_gap: float, commfor_logit: float, params: dict | None
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 EDIT_CONDITIONS = ("noise2", "noise4", "noise8", "grain", "blur", "sharpen", "filter", "rescale", "crop80",
-                   "rotate3", "webp50", "screenshot", "chain_filter", "chain_shot")
+                   "rotate3", "webp50", "screenshot", "chain_filter", "chain_shot",
+                   "app_screenshot", "app_screenshot_crop")
 # The standard benchmark conditions (other tools iterate over these); the everyday edits
 # are opt-in via --conditions.
 CONDITIONS = ("original", "jpeg75", "social")
@@ -220,6 +226,45 @@ def _screenshot(image: Image.Image) -> Image.Image:
     return _encode(canvas, "PNG")
 
 
+def _text_marks(canvas: Image.Image, rng: np.random.Generator, x0: int, y0: int, width: int,
+                lines: int, colour: tuple[int, int, int], line_h: int = 44) -> None:
+    """Word-like dark/light blocks standing in for UI text."""
+    for line in range(lines):
+        x, y = x0, y0 + line * line_h
+        end = x0 + int(width * rng.uniform(0.5, 1.0))
+        while x < end:
+            word = int(rng.integers(30, 140))
+            canvas.paste(colour, (x, y, min(x + word, end), y + 22))
+            x += word + int(rng.integers(12, 22))
+
+
+def _app_screenshot(image: Image.Image, rng: np.random.Generator) -> Image.Image:
+    """The image as a post in a social app, captured as a 1080 x 2400 PNG screenshot."""
+    dark = rng.random() < 0.5
+    bg, ink, faint = ((0, 0, 0), (235, 235, 235), (120, 120, 120)) if dark else \
+        ((255, 255, 255), (20, 20, 20), (140, 140, 140))
+    width, height = 1080, 2400
+    canvas = Image.new("RGB", (width, height), bg)
+    _text_marks(canvas, rng, 40, 30, 200, 1, ink)                      # status bar clock/icons
+    _text_marks(canvas, rng, 40, 130, 420, 1, ink)                     # app bar title
+    canvas.paste(faint, (40, 280, 120, 360))                           # avatar
+    _text_marks(canvas, rng, 150, 300, 380, 1, ink)                    # user name
+    shown_h = min(1350, max(1, round(image.height * width / image.width)))
+    shown = image.resize((width, round(image.height * width / image.width)), Image.BILINEAR)
+    shown = shown.crop((0, (shown.height - shown_h) // 2, width, (shown.height - shown_h) // 2 + shown_h))
+    canvas.paste(shown, (0, 400))
+    y = 400 + shown_h + 30
+    for i in range(4):                                                 # action icons
+        canvas.paste(ink, (40 + i * 110, y, 100 + i * 110, y + 8))
+        canvas.paste(ink, (40 + i * 110, y + 52, 100 + i * 110, y + 60))
+    _text_marks(canvas, rng, 40, y + 110, 1000, 3, ink)                # caption
+    _text_marks(canvas, rng, 40, y + 270, 1000, 2, faint)              # comments
+    canvas.paste(bg, (0, height - 170, width, height))                 # bottom navigation
+    for i in range(5):
+        canvas.paste(ink, (90 + i * 205, height - 110, 150 + i * 205, height - 50))
+    return _encode(canvas, "PNG")
+
+
 def _social(image: Image.Image) -> Image.Image:
     long_edge = max(image.size)
     if long_edge > 1080:
@@ -271,6 +316,13 @@ def degrade(image: Image.Image, condition: str, seed: int = 0) -> Image.Image:
         return _social(degrade(degrade(image, "filter", seed), "rescale", seed))
     if condition == "chain_shot":
         return _social(_screenshot(degrade(image, "noise4", seed)))
+    if condition == "app_screenshot":
+        return _app_screenshot(image, rng)
+    if condition == "app_screenshot_crop":
+        from screenshot_crop import classifier_region
+
+        shot = _app_screenshot(image, rng)
+        return shot.crop(classifier_region(shot))
     raise ValueError(f"Unknown condition: {condition}")
 
 

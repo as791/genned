@@ -57,6 +57,28 @@ class EditConditionsTest(unittest.TestCase):
                          evaluate.condition_seed(Path("c/b.png"), "noise4"))
 
 
+class ScreenshotCropTest(unittest.TestCase):
+    def test_crop_recovers_the_picture_in_app_screenshots(self):
+        import screenshot_crop
+
+        for seed, size in ((0, (1080, 1350)), (1, (1000, 1000)), (2, (1600, 900)), (3, (900, 1600))):
+            image = sample_image(seed, size)
+            rng = np.random.default_rng(seed)  # seed parity picks light (even draws) or dark themes
+            shot = evaluate._app_screenshot(image, rng)
+            shown_h = min(1350, round(size[1] * 1080 / size[0]))
+            left, top, right, bottom = screenshot_crop.classifier_region(shot)
+            self.assertLessEqual(abs(top - 400), 72, (seed, size, top))
+            self.assertLessEqual(abs(bottom - (400 + shown_h)), 72, (seed, size, bottom))
+            self.assertEqual((left, right), (0, 1080))
+
+    def test_plain_photo_falls_back_to_the_centred_square(self):
+        import screenshot_crop
+
+        left, top, right, bottom = screenshot_crop.classifier_region(sample_image(4, (1080, 2400)))
+        self.assertEqual((right - left, bottom - top), (1080, 1080))
+        self.assertEqual(top, 96 + (2400 - 96 - 120 - 1080) // 2)
+
+
 class UniversalTrainingTest(unittest.TestCase):
     def setUp(self):
         import torch

@@ -91,6 +91,7 @@ class AnalyzingViewModel(
             widthPx = normalized.widthPx,
             heightPx = normalized.heightPx,
             fileSizeBytes = normalized.fileSizeBytes,
+            classifierCrop = normalized.classifierCrop,
         )
 
         try {
