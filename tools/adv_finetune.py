@@ -97,7 +97,7 @@ import torch.nn.functional as F  # noqa: E402
 
 MEAN_T = torch.tensor(MEAN).view(1, 3, 1, 1)
 STD_T = torch.tensor(STD).view(1, 3, 1, 1)
-RECIPE_VERSION = "phase3-v2"  # checked by notebooks/robust_finetune_kaggle.ipynb
+RECIPE_VERSION = "phase3-v3"  # checked by notebooks/robust_finetune_kaggle.ipynb
 PHASE2B_RECIPE = "adv-finetune-v3"  # checked by notebooks/adversarial_finetune.ipynb (Phase 2b)
 PHASE3_OBJECTIVES = ("aug", "uat", "aug+uat")
 # Edits the validation AUC is measured under (a spread of the everyday-edit families).
@@ -105,6 +105,7 @@ VAL_EDITS = ("noise4", "filter", "rescale", "webp50", "screenshot", "chain_shot"
 CHECKPOINT_NAME = "{model}-robust{suffix}.pt"
 LOG_NAME = "{model}-train-log{suffix}.json"
 STATE_NAME = "{model}-state{suffix}.pt"
+FINAL_NAME = "{model}-final{suffix}.pt"
 
 
 # --------------------------------------------------------------------------- models
@@ -316,6 +317,19 @@ def prepare_views(dataset, workers: int, batch: int, label: str) -> tuple[torch.
     return torch.cat(xs), torch.cat(ys)
 
 
+def split_halves(y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Fixed, stratified split for the validation universal attack: images of each class
+    alternate between the fit half and the test half, so both halves hold AI and real
+    images. (The validation set lists all AI images first, so a plain first/second half
+    split fits the patterns on AI images only and tests on real ones only.)"""
+    fit, test = [], []
+    for label in (0.0, 1.0):
+        idx = (y == label).nonzero().flatten().tolist()
+        fit += idx[0::2]
+        test += idx[1::2]
+    return torch.tensor(sorted(fit), dtype=torch.long), torch.tensor(sorted(test), dtype=torch.long)
+
+
 def evaluate_phase3(model: nn.Module, views: dict[str, tuple[torch.Tensor, torch.Tensor]], device, eps: float,
                     amp: bool, batch: int, uap_epochs: int) -> dict:
     """Clean AUC/accuracy, AUC under each validation edit, and accuracy of the other half of the
@@ -345,9 +359,9 @@ def evaluate_phase3(model: nn.Module, views: dict[str, tuple[torch.Tensor, torch
 
     x_u8, y = views["clean"]
     x = x_u8.float() / 255
-    half = len(x) // 2
-    deltas = fit_universal(model, x[:half], y[:half], eps, uap_epochs, batch, device, amp)
-    test_x, test_y = x[half:].to(device), y[half:].to(device)
+    fit_idx, test_idx = split_halves(y)
+    deltas = fit_universal(model, x[fit_idx], y[fit_idx], eps, uap_epochs, batch, device, amp)
+    test_x, test_y = x[test_idx].to(device), y[test_idx].to(device)
     with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
         clean_logit = model(test_x).float()
         adv_logit = model((test_x + deltas[test_y.long()]).clamp(0, 1)).float()
@@ -355,6 +369,10 @@ def evaluate_phase3(model: nn.Module, views: dict[str, tuple[torch.Tensor, torch
     # wrong either way (or a degenerate constant model) can't score as robust.
     robust = ((clean_logit > 0).float() == test_y) & ((adv_logit > 0).float() == test_y)
     out[f"uap_robust_acc_{eps * 255:g}"] = float(robust.float().mean())
+    # Per class: AI images that stay AI under the evasion pattern, real ones that stay real
+    # under the framing pattern.
+    out[f"uap_robust_acc_ai_{eps * 255:g}"] = float(robust[test_y == 1].float().mean())
+    out[f"uap_robust_acc_real_{eps * 255:g}"] = float(robust[test_y == 0].float().mean())
     return out
 
 
@@ -721,6 +739,11 @@ def main() -> None:
               f"{'' if log['finished'] else '; continue with --resume-state'})", flush=True)
 
     log["seconds"] = round(time.time() - started)
+    if log["finished"]:
+        # The last weights too, whatever validation selected (benchmarks can compare both).
+        final_path = args.out / FINAL_NAME.format(model=args.model, suffix=suffix)
+        torch.save({k: v.detach().cpu() for k, v in model.net.state_dict().items()}, final_path)
+        print(f"Saved final weights {final_path}", flush=True)
     checkpoint = args.out / CHECKPOINT_NAME.format(model=args.model, suffix=suffix)
     log_path = args.out / LOG_NAME.format(model=args.model, suffix=suffix)
     log_path.write_text(json.dumps(log, indent=2))

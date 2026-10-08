@@ -25,8 +25,13 @@ on:
         description: Fine-tuned Community Forensics weights, "hf-repo:file" (empty = the published model)
         default: ''
       checkpoint_run_id:
-        description: Phase 3 train run id; uses its *-robust-p3.pt checkpoints (empty = none)
+        description: Phase 3 train run id; uses its checkpoints (empty = none)
         default: ''
+      checkpoint_weights:
+        description: From that run, the validation-selected weights (best) or the last ones (final)
+        type: choice
+        options: [best, final]
+        default: best
       assets_branch:
         description: Branch the built files + parameters are pushed to
         default: model-assets
@@ -64,7 +69,7 @@ jobs:
         with:
           run-id: ${{ inputs.checkpoint_run_id }}
           github-token: ${{ github.token }}
-          pattern: phase3-*-checkpoint
+          pattern: phase3-*
           merge-multiple: true
           path: checkpoints
 
@@ -72,14 +77,22 @@ jobs:
         env:
           BUNDLED_CHECKPOINT: ${{ inputs.bundled_checkpoint }}
           COMMFOR_CHECKPOINT: ${{ inputs.commfor_checkpoint }}
+          WEIGHTS: ${{ inputs.checkpoint_weights }}
         run: |
-          # Checkpoints from a train run fill in whichever model wasn't given explicitly.
-          if [ -z "$BUNDLED_CHECKPOINT" ] && [ -f checkpoints/bundled-robust-p3.pt ]; then
-            BUNDLED_CHECKPOINT=checkpoints/bundled-robust-p3.pt
-          fi
-          if [ -z "$COMMFOR_CHECKPOINT" ] && [ -f checkpoints/commfor-robust-p3.pt ]; then
-            COMMFOR_CHECKPOINT=checkpoints/commfor-robust-p3.pt
-          fi
+          # Checkpoints from a train run fill in whichever model wasn't given explicitly:
+          # best = the validation-selected *-robust-p3.pt; final = *-final-p3.pt, or the last
+          # weights inside *-state-p3.pt for runs made before final weights were saved.
+          pick() {
+            if [ "$WEIGHTS" = "final" ]; then
+              for f in "checkpoints/$1-final-p3.pt" "checkpoints/$1-state-p3.pt"; do
+                [ -f "$f" ] && { echo "$f"; return; }
+              done
+            elif [ -f "checkpoints/$1-robust-p3.pt" ]; then
+              echo "checkpoints/$1-robust-p3.pt"
+            fi
+          }
+          [ -z "$BUNDLED_CHECKPOINT" ] && BUNDLED_CHECKPOINT="$(pick bundled)"
+          [ -z "$COMMFOR_CHECKPOINT" ] && COMMFOR_CHECKPOINT="$(pick commfor)"
           echo "bundled: ${BUNDLED_CHECKPOINT:-as shipped}; commfor: ${COMMFOR_CHECKPOINT:-as published}"
           mkdir -p eval-results
           args=(--dataset eval-data/defactify --out model-assets --report eval-results/parity.md)

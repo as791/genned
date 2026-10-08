@@ -68,7 +68,13 @@ def resolve_checkpoint(spec: str) -> Path:
 def load_checkpoint(module, spec: str) -> None:
     import torch
 
-    state = torch.load(resolve_checkpoint(spec), map_location="cpu", weights_only=True)
+    path = resolve_checkpoint(spec)
+    if "-state" in path.name:
+        # A tools/adv_finetune.py --save-state file (our own CI artifact; it also holds RNG
+        # states, so it isn't a plain weights file): use its last model weights.
+        state = torch.load(path, map_location="cpu", weights_only=False)["net"]
+    else:
+        state = torch.load(path, map_location="cpu", weights_only=True)
     module.load_state_dict(state, strict=True)
     print(f"Loaded fine-tuned weights from {spec}")
 

@@ -113,6 +113,15 @@ class UniversalTrainingTest(unittest.TestCase):
             self.assertTrue(torch.equal(x_u8.float() / 255, direct))
             self.assertEqual(y.tolist(), [dataset[i][1].item() for i in range(len(dataset))])
 
+    def test_split_halves_is_stratified(self):
+        torch = self.torch
+        y = torch.tensor([1.0] * 6 + [0.0] * 6)  # all AI first, as the validation set is listed
+        fit, test = self.ft.split_halves(y)
+        self.assertEqual(set(fit.tolist()) & set(test.tolist()), set())
+        self.assertEqual(len(fit) + len(test), len(y))
+        for half in (fit, test):
+            self.assertEqual(sorted(set(y[half].tolist())), [0.0, 1.0])
+
     def test_jitter_keeps_shape(self):
         torch = self.torch
         delta = torch.rand(1, 3, 40, 40)

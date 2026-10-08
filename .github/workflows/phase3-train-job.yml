@@ -134,6 +134,7 @@ jobs:
           name: phase3-${{ inputs.model }}-checkpoint
           path: |
             runs/*-robust-p3.pt
+            runs/*-final-p3.pt
             runs/*-train-log-p3.json
             runs-train.log
           overwrite: true
