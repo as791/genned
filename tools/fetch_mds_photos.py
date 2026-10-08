@@ -76,10 +76,11 @@ class HubShards:
     """Range reads from a dataset repo's files."""
 
     def __init__(self, dataset: str):
-        from huggingface_hub import HfFileSystem
+        from huggingface_hub import HfApi, HfFileSystem
 
         self.fs = HfFileSystem()
         self.root = f"datasets/{dataset}"
+        self.files = set(HfApi().list_repo_files(dataset, repo_type="dataset"))
 
     def read(self, path: str, start: int | None = None, end: int | None = None) -> bytes:
         return self.fs.cat_file(f"{self.root}/{path}", start=start, end=end)
@@ -87,9 +88,12 @@ class HubShards:
 
 def fetch(source, out: Path, count: int, make_regex: str, seed: int, max_tries: int) -> Counter:
     index = json.loads(source.read("streaming/index.json"))
-    shards = [s for s in index["shards"] if s.get("format") == "mds" and not s.get("compression")]
+    listed = [s for s in index["shards"] if s.get("format") == "mds" and not s.get("compression")]
+    # A partial mirror can list shards it never uploaded.
+    shards = [s for s in listed if "streaming/" + s["raw_data"]["basename"] in source.files]
+    print(f"index lists {len(listed)} uncompressed MDS shards; {len(shards)} are in the repository")
     if not shards:
-        sys.exit("No uncompressed MDS shards listed in streaming/index.json.")
+        sys.exit("No uncompressed MDS shards from streaming/index.json are in the repository.")
     population = [(shard_no, i) for shard_no, s in enumerate(shards) for i in range(s["samples"])]
     print(f"{len(shards)} shards, {len(population)} samples; sampling {count} phone photos (seed {seed})")
     rng = random.Random(seed)
