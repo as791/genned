@@ -11,7 +11,9 @@ class ScreenshotCropTest {
 
     /**
      * A grid shaped like a social-app screenshot: flat [background] UI with sparse "text"
-     * marks, and a noisy picture in rows [pictureTop, pictureBottom).
+     * marks, and a noisy picture in rows [pictureTop, pictureBottom). Text rows are every
+     * 12th row (y % 12 == 4) at under 40% ink, so they always read as UI; tests keep the
+     * picture's edges more than the 5-row gap away from them.
      */
     private fun screenshotGrid(
         background: Int,
@@ -29,7 +31,7 @@ class ScreenshotCropTest {
             when {
                 y in pictureTop until pictureBottom && x in pictureLeft until pictureRight ->
                     rgb(random.nextInt(30, 226), random.nextInt(30, 226), random.nextInt(30, 226))
-                y % 12 == 4 && x in 4 until 70 && random.nextFloat() < 0.6f -> ink // text lines
+                y % 12 == 4 && x in 4 until 70 && random.nextFloat() < 0.4f -> ink // text lines
                 else -> background
             }
         }
@@ -49,16 +51,16 @@ class ScreenshotCropTest {
 
     @Test
     fun `finds the picture band in a dark screenshot`() {
-        val grid = screenshotGrid(black, rgb(235, 235, 235), pictureTop = 30, pictureBottom = 150)
+        val grid = screenshotGrid(black, rgb(235, 235, 235), pictureTop = 36, pictureBottom = 150)
         val band = ScreenshotCrop.pictureBand(grid, gridWidth, gridHeight)!!
-        assertThat(band.toList()).isEqualTo(listOf(0, 30, gridWidth, 150))
+        assertThat(band.toList()).isEqualTo(listOf(0, 36, gridWidth, 150))
     }
 
     @Test
     fun `trims side margins around a narrower picture`() {
-        val grid = screenshotGrid(white, rgb(20, 20, 20), 50, 160, pictureLeft = 20, pictureRight = 90)
+        val grid = screenshotGrid(white, rgb(20, 20, 20), 50, 154, pictureLeft = 20, pictureRight = 90)
         val band = ScreenshotCrop.pictureBand(grid, gridWidth, gridHeight)!!
-        assertThat(band.toList()).isEqualTo(listOf(20, 50, 90, 160))
+        assertThat(band.toList()).isEqualTo(listOf(20, 50, 90, 154))
     }
 
     @Test
