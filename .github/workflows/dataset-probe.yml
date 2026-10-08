@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: Hugging Face dataset id
+        description: 'Hugging Face dataset id, or "search:words" to list matches and probe the top one'
         required: true
       config:
         description: Config name (optional)

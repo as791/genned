@@ -8,6 +8,7 @@ because Hugging Face isn't reachable from every development environment.
 
 Usage:
     python tools/probe_dataset.py ComplexDataLab/OpenFake [--config NAME] [--rows 2000]
+    python tools/probe_dataset.py "search:laion mobile"   # list matches, then probe the top one
 """
 
 from __future__ import annotations
@@ -19,6 +20,20 @@ import sys
 from collections import Counter, defaultdict
 
 
+def search(api, query: str) -> str | None:
+    """Lists datasets matching every word of `query` (most downloaded first); returns the top id."""
+    words = query.split()
+    found = {d.id: d for d in api.list_datasets(search=words[0], sort="downloads", direction=-1, limit=200)
+             if all(w.lower() in d.id.lower() for w in words)}
+    hits = sorted(found.values(), key=lambda d: -(getattr(d, "downloads", 0) or 0))
+    print(f"# datasets matching {query!r}: {len(hits)}")
+    for d in hits[:20]:
+        license_tags = [t for t in (d.tags or []) if t.startswith("license:")]
+        print(f"  {d.id}  downloads={getattr(d, 'downloads', None)}  {license_tags}")
+    print()
+    return hits[0].id if hits else None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("dataset")
@@ -28,6 +43,11 @@ def main() -> None:
 
     from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
     from huggingface_hub import HfApi
+
+    if args.dataset.startswith("search:"):
+        args.dataset = search(HfApi(), args.dataset[len("search:"):].strip())
+        if args.dataset is None:
+            sys.exit("No dataset matched the search.")
 
     info = HfApi().dataset_info(args.dataset, files_metadata=True)
     print(f"# {args.dataset}")
