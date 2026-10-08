@@ -90,6 +90,7 @@ jobs:
             elif [ -f "checkpoints/$1-robust-p3.pt" ]; then
               echo "checkpoints/$1-robust-p3.pt"
             fi
+            return 0  # no checkpoint for this model: keep it as shipped (not an error under bash -e)
           }
           [ -z "$BUNDLED_CHECKPOINT" ] && BUNDLED_CHECKPOINT="$(pick bundled)"
           [ -z "$COMMFOR_CHECKPOINT" ] && COMMFOR_CHECKPOINT="$(pick commfor)"
