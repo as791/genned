@@ -724,6 +724,77 @@ Reading:
   ([37747738638](https://github.com/as791/genned/actions/runs/37747738638)) is the
   candidate that can ship.
 
+**Open-weights retrain: photos only (shipping candidate)**
+
+Train run [37747738638](https://github.com/as791/genned/actions/runs/37747738638):
+- Community Forensics, aug+uat, 5 epochs (the selected epoch is the last);
+- 2,500 + 1,000 images per class;
+- **open-weights generators only**. The log shows `Excluded generators: ['dalle3',
+  'midjourney6']`, and Defactify contributed SD 2.1 / SDXL / SD3 only.
+
+Validation on OpenFake, start → epoch 5:
+- clean AUC 0.910 → 0.970;
+- edited AUC 0.897 / 0.855 → 0.966 / 0.958 (mean / min);
+- universal robust accuracy 19.3% → 86.7%.
+
+Built in Ensemble build
+[37787974107](https://github.com/as791/genned/actions/runs/37787974107). Its log confirms
+`Loaded fine-tuned weights`.
+
+On video it repeats the first run's regression: DeepAction AUC 0.958 → 0.881. So the app
+pairs each input type with the copy that is better for it:
+- **photos and screen captures** use the fine-tuned copy (`commfor-224.onnx`);
+- **video frames** keep the published weights (`commfor-224-video.onnx`).
+
+Each path has its own constants (`EnsembleConfig.Photo` / `.Video`). The cost is +43.5 MB.
+Video results are therefore unchanged from the shipped ensemble.
+
+| | Shipped | Photo path with the retrain |
+|---|---|---|
+| Clean AUC: Defactify / MJ-DALL·E-SD-NBP / OpenFake | 0.989 / 0.828 / 0.863 | 0.992 / 0.854 / **0.925** |
+| AI caught @5% false alarms: Defactify / MJ set | 94.8% / 33.9% | 96.8% / **45.3%** |
+| AI shown HIGH (unedited): Defactify / MJ set / OpenFake | 64.0 / 30.7 / 40.0% | 66.0 / 39.3 / 44.7% |
+| Real shown HIGH at app bands (worst, build report) | 2.8% | 4.0% |
+| Real shown HIGH after WebP q50: Defactify / MJ set / OpenFake | 11.3 / 14.7 / 14.0% | 1.3 / 10.0 / 0.7% |
+| Edit cells failing a gate (3 datasets × 17 conditions) | 17 | **9** |
+| Universal pattern @8/255: evasion / framing | 75% / 33% | 65% / **0%** |
+| Transfer from open detectors @8/255: evasion / framing | 98% / 25% | 88% / 0% |
+| Square black box: direct / laundered | 80 / 57% | 70 / 50% |
+| White box, per image | 100% | 100% |
+
+Sources: Robustness eval
+[37795358489](https://github.com/as791/genned/actions/runs/37795358489) and Adversarial
+eval [37795363070](https://github.com/as791/genned/actions/runs/37795363070), 150 + 150
+images per dataset (60 attacked).
+
+**Phase 3 gates for the shipped app (photos with the retrain, video unchanged):**
+1. **Worst case @5% false alarms:** stays at 30%. The bottleneck is DF26 video, which
+   this change doesn't touch. Photos alone go from 33.9% to 45.3%.
+2. **Real shown HIGH ≤ 5% / AI shown LOW ≤ 10% under every edit:** 3 cells still fail,
+   all of them worse in the shipped app:
+   - MJ set webp50: 10.0% real shown HIGH;
+   - OpenFake sharpen: 14.7% AI shown LOW;
+   - OpenFake screenshot: 11.3% AI shown LOW.
+3. **Video AUC drop ≤ 0.02:** passes, since video is unchanged.
+4. **AI shown HIGH at most 10 points below unedited:** fails for
+   - grain (−24.0 / −15.3 points);
+   - sharpen (−22.7 / −13.3);
+   - chain_shot on the MJ set (−12.7);
+   - crop80 on Defactify (−10.7).
+
+   Two of these are new: Defactify crop80 and MJ sharpen.
+5. **Universal pattern ≤ 20%:** fails, at 65% (from 75%). Universal framing is gone
+   (33% → 0%).
+6. **Transfer from open detectors ≤ 30%:** fails, at 88% (from 98%).
+7. **White box:** reported. Still 100%, as expected.
+
+Reading:
+- The photo path is better than the shipped app on accuracy, false accusations after
+  WebP, and every attack measured.
+- The robustness gates (5, 6) and the grain/sharpen edits remain open work.
+- Video needs its own training data (open video frames) before it can share the
+  fine-tuned weights.
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace
