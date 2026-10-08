@@ -34,6 +34,46 @@ def search(api, query: str) -> str | None:
     return hits[0].id if hits else None
 
 
+SMALL_FILE_BYTES = 300_000_000
+
+
+def summarize_file(dataset: str, filename: str, rows: int) -> None:
+    """Prints the schema, first rows and short-column value counts of one small data file."""
+    from huggingface_hub import hf_hub_download
+
+    path = hf_hub_download(dataset, filename, repo_type="dataset")
+    print(f"\n## file {filename}")
+    if filename.endswith(".json"):
+        text = open(path, encoding="utf-8").read()
+        print(text[:3000] + (" ..." if len(text) > 3000 else ""))
+        return
+    import pandas as pd
+
+    if filename.endswith(".parquet"):
+        import pyarrow.parquet as pq
+
+        meta = pq.ParquetFile(path)
+        print(f"rows: {meta.metadata.num_rows}\nschema:\n{meta.schema_arrow}")
+        df = meta.read_row_group(0).to_pandas().head(rows)
+    elif filename.endswith(".jsonl"):
+        df = pd.read_json(path, lines=True, nrows=rows)
+    else:
+        df = pd.read_csv(path, nrows=rows)
+    for i in range(min(3, len(df))):
+        print(f"row {i}: " + ", ".join(f"{k}={str(v)[:80]!r}" for k, v in df.iloc[i].items()
+                                       if not isinstance(v, (bytes, bytearray))))
+    print(f"value counts over the first {len(df)} rows (columns with <= 60 distinct values):")
+    for col in df.columns:
+        try:
+            counts = df[col].astype(str).str.slice(0, 64).value_counts()
+        except Exception:  # noqa: BLE001
+            continue
+        if len(counts) <= 60:
+            print(f"  {col}: { {k: int(v) for k, v in counts.items()} }")
+        else:
+            print(f"  {col}: {len(counts)} distinct values; top: { {k: int(v) for k, v in counts.head(15).items()} }")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("dataset")
@@ -75,7 +115,14 @@ def main() -> None:
         print(f"configs: {get_dataset_config_names(args.dataset)}")
     except Exception as e:  # noqa: BLE001 - informational only
         print(f"configs: unavailable ({e})")
-    splits = get_dataset_split_names(args.dataset, args.config)
+    try:
+        splits = get_dataset_split_names(args.dataset, args.config)
+    except Exception as e:  # noqa: BLE001 - e.g. a streaming (MDS) layout `datasets` can't parse
+        print(f"splits: unavailable ({type(e).__name__}: {e}); summarizing small data files instead")
+        splits = []
+        for f in files:
+            if f.rfilename.endswith((".parquet", ".json", ".jsonl", ".csv")) and (f.size or 0) <= SMALL_FILE_BYTES:
+                summarize_file(args.dataset, f.rfilename, args.rows)
     print(f"splits: {splits}")
 
     for split in splits:
