@@ -187,5 +187,35 @@ class FetchResumeTest(unittest.TestCase):
             self.assertEqual(hashes, set())
 
 
+class CalibrationRefitTest(unittest.TestCase):
+    def test_weighted_platt_with_unit_weights_matches_fit_platt(self):
+        from calibrate import fit_platt
+        from calibration_refit import fit_platt_weighted
+
+        rng = np.random.default_rng(0)
+        y = rng.integers(0, 2, 400)
+        d = rng.normal(0, 1, 400) + 1.5 * (2 * y - 1)
+        np.testing.assert_allclose(fit_platt_weighted(d, y, np.ones(400)), fit_platt(d, y), atol=1e-6)
+
+    def test_weighted_platt_recovers_known_constants(self):
+        from calibration_refit import fit_platt_weighted
+
+        rng = np.random.default_rng(1)
+        d = rng.normal(0, 1.5, 20000)
+        y = (rng.random(20000) < 1 / (1 + np.exp(-(2.0 * d - 0.5)))).astype(int)
+        slope, intercept = fit_platt_weighted(d, y, rng.uniform(0.5, 2.0, 20000))
+        self.assertAlmostEqual(slope, 2.0, delta=0.15)
+        self.assertAlmostEqual(intercept, -0.5, delta=0.15)
+
+    def test_fold_split_is_deterministic_and_balanced(self):
+        from calibration_refit import fold_of
+
+        names = [f"real/{i:05d}.jpg" for i in range(1000)]
+        folds = [fold_of(n) for n in names]
+        self.assertEqual(folds, [fold_of(n) for n in names])
+        self.assertTrue(400 < sum(folds) < 600)
+        self.assertEqual(fold_of("real/00001.jpg"), fold_of("other/dir/00001.jpg"))
+
+
 if __name__ == "__main__":
     unittest.main()

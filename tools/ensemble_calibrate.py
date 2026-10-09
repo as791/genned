@@ -43,7 +43,7 @@ BUNDLED_MODEL_NAME = "app as shipped"
 
 
 def load_pairs(path: Path, bundled_preprocess: str, commfor_preprocess: str) -> list[dict]:
-    """Rows where both models scored the same item: {dataset, condition, is_ai, d, c}."""
+    """Rows where both models scored the same item: {dataset, condition, image, is_ai, d, c}."""
     table: dict[tuple, dict] = defaultdict(dict)
     with path.open() as f:
         for row in csv.DictReader(f):
@@ -54,7 +54,7 @@ def load_pairs(path: Path, bundled_preprocess: str, commfor_preprocess: str) -> 
                 table[key]["c"] = float(row["logit_diff"])
             else:
                 continue
-            table[key].update(dataset=key[0], condition=key[1], is_ai=int(row["is_ai"]))
+            table[key].update(dataset=key[0], condition=key[1], image=key[2], is_ai=int(row["is_ai"]))
     return [v for v in table.values() if "d" in v and "c" in v]
 
 
