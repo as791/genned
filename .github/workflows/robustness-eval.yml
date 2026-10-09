@@ -95,6 +95,11 @@ jobs:
             python tools/edit_report.py results
             echo
             python tools/eval_report.py results
+            # With real phone photos in the run: test refitting the photo calibration on them.
+            if [ -f results/scores-phone-photos.csv ]; then
+              echo
+              python tools/calibration_refit.py results --json results/calibration-refit.json
+            fi
           } > results/report.md
           cat results/report.md >> "$GITHUB_STEP_SUMMARY"
           cat results/report.md
