@@ -12,7 +12,9 @@ linked from Settings and each release. Keep the two in sync.
    external location.
 3. All detection — the on-device classifier, EXIF/metadata inspection, provenance
    checks — runs **on-device**. No network call is made as part of analysis, and
-   the app requests no network-related permission for this path.
+   the app requests no network-related permission for this path. Screenshot detection
+   (`ImageLoader` / `ScreenshotCrop`) reads the shared file's display name and the
+   device's screen size in memory only; neither is stored or logged.
 4. After analysis, the original and normalized working copies are deleted
    (`AnalyzingViewModel.cleanUp`). Only a small (≤256px) thumbnail and the
    aggregated result are kept, in the app's private storage, for your local

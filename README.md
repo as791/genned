@@ -61,6 +61,8 @@ value — and those are combined transparently into one likelihood estimate:
 
 - **Visual AI classifier** — on-device ONNX Runtime inference with the bundled
   `Dafilab/ai-image-detector` model (EfficientNet-B4, exported to ONNX).
+  A shared screenshot (file named "Screenshot…" or the size of the phone's screen, and
+  no camera EXIF) is classified on the picture inside it, not the surrounding app UI.
 - **Generator metadata** — scans EXIF and PNG text chunks for known
   generative-tool signatures (Stable Diffusion/ComfyUI "parameters" chunks,
   Midjourney/DALL·E/Firefly software strings, etc.). A match is real evidence;

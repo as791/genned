@@ -20,6 +20,9 @@ statistics, crash reports, identifiers or location.
 - A working copy is made in the app's private storage and analyzed on the phone: an AI
   image classifier, plus the file's own metadata (EXIF, generator tags, provenance
   data).
+- To tell whether a shared image is a screenshot, Genned looks at the file's name and
+  compares the image's size with your screen, on the phone. If it is one, only the picture
+  inside it is checked. The file name is not stored or logged.
 - The working copy is deleted when the check finishes. Leftovers from a failed or
   cancelled check are deleted the next time the app starts.
 
