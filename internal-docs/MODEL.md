@@ -857,6 +857,33 @@ Huawei 22, Xiaomi 9, Oppo 2. It is real-only, so AUC is n/a.
 - Community Forensics alone: 4.0% real shown HIGH (worst 8.7% under a filter). The
   ensemble is the safer of the two.
 
+**Refit test: phone photos counted as real**
+([Robustness eval 37889743605](https://github.com/as791/genned/actions/runs/37889743605),
+`tools/calibration_refit.py`). Not shipped.
+
+What was refit: only the photo calibration's slope and intercept. The models and the
+standardization stay as shipped.
+- Fit on Defactify + the MJ set + 300 phone photos.
+- OpenFake is check-only, never fit on.
+- Phone photos are held-out (2-fold).
+- 300 per class; conditions original / jpeg75 / social.
+
+| Candidate | Slope / intercept | Phone photos LOW / UNCERTAIN / HIGH (original) | AI shown HIGH: Defactify / MJ set / OpenFake (original) | Worst AI shown LOW | Worst real shown HIGH |
+|---|---|---|---|---|---|
+| shipped | 3.264 / 0.026 | 37.7 / 59.3 / 3.0% | 64.7 / 44.0 / 47.3% | 7.0% | 4.3% |
+| pooled | 3.154 / −0.585 | 45.3 / 53.3 / 1.3% | 51.3 / 30.3 / 38.0% | 9.7% | 2.0% |
+| balanced | 3.118 / −0.959 | 56.7 / 43.0 / 0.3% | 42.7 / 24.7 / 34.0% | **12.7%** (fails) | 1.3% |
+
+Reading:
+- "Pooled" meets both rules, only just (AI LOW 9.7%). It moves 6 points of phone photos
+  out of UNCERTAIN, and costs 9–14 points of AI shown HIGH on every AI set.
+- "Balanced" moves 16 points but breaks the AI-LOW rule.
+- Phone photos and AI images overlap in score. Calibration only slides the same cut along
+  that overlap, so every point of real photos moved to LOW costs about two points of AI
+  moved out of HIGH.
+- The way to fix this is model separation: training with phone photos as real. Calibration
+  can't do it.
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace
