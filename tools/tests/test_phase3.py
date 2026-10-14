@@ -217,5 +217,24 @@ class CalibrationRefitTest(unittest.TestCase):
         self.assertEqual(fold_of("real/00001.jpg"), fold_of("other/dir/00001.jpg"))
 
 
+class BandSweepTest(unittest.TestCase):
+    def test_bands_match_evaluate_at_the_shipped_cut_off(self):
+        from band_sweep import bands
+
+        p = np.random.default_rng(2).random(500)
+        b = evaluate._bands(p)
+        self.assertEqual(bands(p, evaluate.LOW_THRESHOLD), (b["low"], b["uncertain"], b["high"]))
+
+    def test_raising_low_only_moves_uncertain_to_low(self):
+        from band_sweep import bands
+
+        p = np.random.default_rng(3).random(500)
+        lo1, unc1, hi1 = bands(p, 0.15)
+        lo2, unc2, hi2 = bands(p, 0.20)
+        self.assertEqual(hi1, hi2)
+        self.assertGreaterEqual(lo2, lo1)
+        self.assertAlmostEqual(lo1 + unc1, lo2 + unc2)
+
+
 if __name__ == "__main__":
     unittest.main()
