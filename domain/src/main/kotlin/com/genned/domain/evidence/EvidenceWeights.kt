@@ -37,12 +37,23 @@ object EvidenceWeights {
     const val HIGH_THRESHOLD = 0.90f
 
     /**
-     * aiLikelihood < this -> [com.genned.domain.model.Classification.LOW]; between the two
-     * is UNCERTAIN. Chosen the same way: the highest threshold at which at most 10% of
-     * AI content shows LOW. At 0.15 the worst case is 7.6% of AI photos and 9.0% of AI
-     * videos (same runs); at 0.25, 17-18% of AI content read LOW with the first ensemble.
+     * aiLikelihood < this -> [com.genned.domain.model.Classification.LOW] for video (and the
+     * [EvidenceEngine] default); between LOW and HIGH is UNCERTAIN. Chosen the same way:
+     * the highest threshold at which at most 10% of AI content shows LOW. For video
+     * (Ensemble build run 36196623887) that is 0.15 (9.0%); 0.20 would show 14% of AI
+     * videos as LOW.
      */
     const val LOW_THRESHOLD = 0.15f
+
+    /**
+     * The LOW cut-off for photos and screen captures (see [LOW_THRESHOLD] for video).
+     * At 0.20, at most 8.7% of AI photos show LOW on unedited benchmark images (Robustness
+     * eval run 38531209175; 9.2% in Ensemble build 37787974107), inside the 10% rule, and
+     * real phone photos read UNCERTAIN 53% of the time instead of 61%. The cost: under
+     * everyday edits (grain, sharpening, screenshot-and-repost) up to 20% of AI photos show
+     * LOW, against 14.7% at 0.15. Chosen by the maintainer for fewer UNCERTAIN results.
+     */
+    const val PHOTO_LOW_THRESHOLD = 0.20f
 
     /** Likelihood reported when no signal produced usable evidence at all. */
     const val NO_EVIDENCE_LIKELIHOOD = 0.5f

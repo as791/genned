@@ -109,8 +109,10 @@ MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 INPUT_NAME = "pixel_values"
 
-# Keep these in sync with EvidenceWeights.kt (domain module).
-LOW_THRESHOLD = 0.15
+# Keep these in sync with EvidenceWeights.kt (domain module). LOW_THRESHOLD is the photo
+# cut-off (PHOTO_LOW_THRESHOLD); video uses VIDEO_LOW_THRESHOLD (LOW_THRESHOLD there).
+LOW_THRESHOLD = 0.20
+VIDEO_LOW_THRESHOLD = 0.15
 HIGH_THRESHOLD = 0.90
 
 # Keep these in sync with ModelConfig.CALIBRATION_SLOPE / CALIBRATION_INTERCEPT and the
@@ -594,17 +596,19 @@ def reliability(labels: np.ndarray, scores: np.ndarray, bins: int = 10) -> tuple
     return float(ece), table
 
 
-def _bands(scores: np.ndarray) -> dict[str, float]:
+def _bands(scores: np.ndarray, low: float | None = None) -> dict[str, float]:
+    low = LOW_THRESHOLD if low is None else low
     if len(scores) == 0:
         return {"low": 0.0, "uncertain": 0.0, "high": 0.0}
     return {
-        "low": float((scores < LOW_THRESHOLD).mean()),
-        "uncertain": float(((scores >= LOW_THRESHOLD) & (scores < HIGH_THRESHOLD)).mean()),
+        "low": float((scores < low).mean()),
+        "uncertain": float(((scores >= low) & (scores < HIGH_THRESHOLD)).mean()),
         "high": float((scores >= HIGH_THRESHOLD).mean()),
     }
 
 
-def compute_metrics(predictions: list[Prediction], threshold: float) -> dict:
+def compute_metrics(predictions: list[Prediction], threshold: float, low: float | None = None) -> dict:
+    """`low`: the LOW cut-off for the band shares (default: the photo one)."""
     labels = np.array([1 if p.ground_truth_is_ai else 0 for p in predictions], dtype=np.int64)
     scores = np.array([p.ai_probability for p in predictions], dtype=np.float64)
     predicted = scores >= threshold
@@ -629,7 +633,7 @@ def compute_metrics(predictions: list[Prediction], threshold: float) -> dict:
                 ((generator_scores < threshold) if is_real else (generator_scores >= threshold)).mean()
             ),
             "mean_score": float(generator_scores.mean()),
-            "bands": _bands(generator_scores),
+            "bands": _bands(generator_scores, low),
         }
 
     return {
@@ -647,15 +651,16 @@ def compute_metrics(predictions: list[Prediction], threshold: float) -> dict:
         "auc": roc_auc(labels, scores),
         "ece": ece,
         "reliability": reliability_table,
-        "bands_real": _bands(scores[labels == 0]),
-        "bands_ai": _bands(scores[labels == 1]),
+        "bands_real": _bands(scores[labels == 0], low),
+        "bands_ai": _bands(scores[labels == 1], low),
         "extreme_share": float(((scores > 0.99) | (scores < 0.01)).mean()) if total else 0.0,
         "per_generator": per_generator,
     }
 
 
-def print_report(predictions: list[Prediction], threshold: float) -> None:
-    m = compute_metrics(predictions, threshold)
+def print_report(predictions: list[Prediction], threshold: float, low: float | None = None) -> None:
+    low = LOW_THRESHOLD if low is None else low
+    m = compute_metrics(predictions, threshold, low)
     c = m["confusion"]
     print(f"Images evaluated: {m['n']} (threshold={threshold})")
     print()
@@ -675,7 +680,7 @@ def print_report(predictions: list[Prediction], threshold: float) -> None:
     print(f"ECE (calibration):     {m['ece']:.3f}  (0 = scores mean what they say)")
     print(f"Scores >99% or <1%:    {m['extreme_share']:.1%}")
     print()
-    print(f"App bands (LOW <{LOW_THRESHOLD:.2f} / UNCERTAIN / HIGH >={HIGH_THRESHOLD:.2f}):")
+    print(f"App bands (LOW <{low:.2f} / UNCERTAIN / HIGH >={HIGH_THRESHOLD:.2f}):")
     for name in ("real", "ai"):
         b = m[f"bands_{name}"]
         print(f"  {name:>4}: LOW {b['low']:.1%}  UNCERTAIN {b['uncertain']:.1%}  HIGH {b['high']:.1%}")

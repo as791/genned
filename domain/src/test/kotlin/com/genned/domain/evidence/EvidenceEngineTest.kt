@@ -215,4 +215,22 @@ class EvidenceEngineTest {
             ).classification,
         ).isEqualTo(Classification.LOW)
     }
+
+    @Test
+    fun `the photo engine uses the photo LOW cut-off and the same HIGH`() {
+        val photoEngine = EvidenceEngine(EvidenceWeights.PHOTO_LOW_THRESHOLD)
+        val between = (EvidenceWeights.LOW_THRESHOLD + EvidenceWeights.PHOTO_LOW_THRESHOLD) / 2
+        val signals = listOf(available(SignalType.AI_CLASSIFIER, score = between))
+
+        assertThat(photoEngine.aggregate(signals).classification).isEqualTo(Classification.LOW)
+        assertThat(engine.aggregate(signals).classification).isEqualTo(Classification.UNCERTAIN)
+        assertThat(
+            photoEngine.aggregate(listOf(available(SignalType.AI_CLASSIFIER, score = EvidenceWeights.PHOTO_LOW_THRESHOLD)))
+                .classification,
+        ).isEqualTo(Classification.UNCERTAIN)
+        assertThat(
+            photoEngine.aggregate(listOf(available(SignalType.AI_CLASSIFIER, score = EvidenceWeights.HIGH_THRESHOLD)))
+                .classification,
+        ).isEqualTo(Classification.HIGH)
+    }
 }

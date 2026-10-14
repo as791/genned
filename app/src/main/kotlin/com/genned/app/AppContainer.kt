@@ -15,6 +15,7 @@ import com.genned.app.data.storage.HistoryRepository
 import com.genned.app.data.storage.ThumbnailStore
 import com.genned.app.data.video.VideoFrameSampler
 import com.genned.domain.evidence.EvidenceEngine
+import com.genned.domain.evidence.EvidenceWeights
 
 /**
  * Hand-written composition root. No DI framework: the object graph here is small and
@@ -39,14 +40,16 @@ class AppContainer(context: Context) {
     private val classifierProvider by lazy { AIImageClassifierProvider(appContext) }
     private val watermarkProvider by lazy { WatermarkProvider() }
 
+    /** Video keeps the default LOW cut-off; photos and screen captures use the photo one. */
     private val evidenceEngine by lazy { EvidenceEngine() }
+    private val photoEvidenceEngine by lazy { EvidenceEngine(EvidenceWeights.PHOTO_LOW_THRESHOLD) }
 
     val analyzeImageUseCase by lazy {
         AnalyzeImageUseCase(
             provenanceProviders = listOf(c2paProvider),
             metadataProviders = listOf(exifMetadataProvider, generatorMetadataProvider),
             visualProviders = listOf(classifierProvider, watermarkProvider),
-            evidenceEngine = evidenceEngine,
+            evidenceEngine = photoEvidenceEngine,
             historyRepository = historyRepository,
         )
     }

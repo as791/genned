@@ -884,6 +884,35 @@ Reading:
 - The way to fix this is model separation: training with phone photos as real. Calibration
   can't do it.
 
+**Photo LOW cut-off 0.15 → 0.20 (shipped in v0.2.2)**
+([Robustness eval 38531209175](https://github.com/as791/genned/actions/runs/38531209175),
+`tools/band_sweep.py`). The maintainer chose fewer UNCERTAIN results on photos.
+
+The app's exact photo probabilities were used, 150 per class, 4 datasets × 19 conditions.
+HIGH stays at 0.90, so no real image moves to HIGH.
+
+| | LOW < 0.15 | LOW < 0.20 |
+|---|---|---|
+| Real phone photos LOW / UNCERTAIN / HIGH (original) | 36.0 / 61.3 / 2.7% | 44.0 / 53.3 / 2.7% |
+| Real images in UNCERTAIN, mean over datasets (original) | 42.2% | 36.5% |
+| AI images in UNCERTAIN, mean (original) | 46.7% | 44.7% |
+| Worst AI shown LOW, clean conditions (rule ≤ 10%) | 6.7% | 8.7% |
+| Worst AI shown LOW under an edit | 14.7% (OpenFake sharpen) | 20.0% (OpenFake sharpen) |
+| Cells with AI shown LOW > 10% | 2 | 7 |
+
+The 7 failing cells at 0.20:
+- Defactify and OpenFake grain;
+- MJ set and OpenFake chain_shot;
+- OpenFake screenshot, sharpen, and the uncropped app_screenshot.
+
+**Video stays at 0.15.** In Ensemble build 36196623887, 0.20 shows 14% of AI videos as
+LOW, against 9% at 0.15. The app therefore has two cut-offs:
+- `EvidenceWeights.PHOTO_LOW_THRESHOLD`, used for photos and overlay captures;
+- `LOW_THRESHOLD`, used for video.
+
+`EvidenceEngine` takes the cut-off as a constructor parameter. `tools/evaluate.py`
+mirrors both values: `LOW_THRESHOLD` (photo) and `VIDEO_LOW_THRESHOLD`.
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace

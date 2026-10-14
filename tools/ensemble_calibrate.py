@@ -37,7 +37,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from calibrate import analyze_mode, auc, fit_platt, sigmoid, worst_case  # noqa: E402
 from ensemble import tpr_at_fpr  # noqa: E402
-from evaluate import COMMFOR_MODEL_NAME, HIGH_THRESHOLD, LOW_THRESHOLD  # noqa: E402
+from evaluate import COMMFOR_MODEL_NAME, HIGH_THRESHOLD, LOW_THRESHOLD, VIDEO_LOW_THRESHOLD  # noqa: E402
 
 BUNDLED_MODEL_NAME = "app as shipped"
 
@@ -77,7 +77,7 @@ def summarize(name: str, rows: list[dict], stats: dict, out: list[str]) -> None:
     out.append("")
 
 
-def calibrate_rows(name: str, rows: list[dict], out: list[str]) -> dict:
+def calibrate_rows(name: str, rows: list[dict], out: list[str], low: float = LOW_THRESHOLD) -> dict:
     calib_rows = [{"dataset": r["dataset"], "condition": r["condition"], "is_ai": r["is_ai"],
                    "logit_diff": r["s"]} for r in rows]
     settings = SimpleNamespace(max_real_high=0.05, max_ai_low=0.10, min_gap=0.20)
@@ -87,7 +87,7 @@ def calibrate_rows(name: str, rows: list[dict], out: list[str]) -> dict:
         # ensemble (e.g. a flipped label), never something to ship.
         sys.exit(f"{name}: calibration slope {result['slope']:.4f} <= 0 - refusing to produce app constants")
     real_high, _ = worst_case(calib_rows, result["slope"], result["intercept"], HIGH_THRESHOLD, 0)
-    _, ai_low = worst_case(calib_rows, result["slope"], result["intercept"], 1.1, LOW_THRESHOLD)
+    _, ai_low = worst_case(calib_rows, result["slope"], result["intercept"], 1.1, low)
     ai_high = min(
         float((sigmoid(result["slope"] * np.array([r["logit_diff"] for r in group]) + result["intercept"])
                >= HIGH_THRESHOLD).mean())
@@ -95,7 +95,7 @@ def calibrate_rows(name: str, rows: list[dict], out: list[str]) -> dict:
                       for d, c in {(r["dataset"], r["condition"]) for r in calib_rows}]
         if group
     )
-    out.append(f"At the app's bands (HIGH ≥ {HIGH_THRESHOLD:.2f}, LOW < {LOW_THRESHOLD:.2f}), worst case: "
+    out.append(f"At the app's bands (HIGH ≥ {HIGH_THRESHOLD:.2f}, LOW < {low:.2f}), worst case: "
                f"**{real_high:.1%} of real shown HIGH**, {ai_low:.1%} of AI shown LOW, "
                f"and at least {ai_high:.1%} of AI shown HIGH.\n")
     result.update(real_high_at_app_bands=real_high, ai_low_at_app_bands=ai_low, min_ai_high_at_app_bands=ai_high)
@@ -137,7 +137,7 @@ def main() -> None:
         if videos:
             combine(videos)
             summarize("Video", videos, stats, out)
-            video = calibrate_rows("ensemble (video)", videos, out)
+            video = calibrate_rows("ensemble (video)", videos, out, VIDEO_LOW_THRESHOLD)
 
     print("\n".join(out))
     if args.json:

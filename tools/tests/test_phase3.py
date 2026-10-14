@@ -223,7 +223,7 @@ class BandSweepTest(unittest.TestCase):
 
         p = np.random.default_rng(2).random(500)
         b = evaluate._bands(p)
-        self.assertEqual(bands(p, evaluate.LOW_THRESHOLD), (b["low"], b["uncertain"], b["high"]))
+        np.testing.assert_allclose(bands(p, evaluate.LOW_THRESHOLD), (b["low"], b["uncertain"], b["high"]), atol=1e-12)
 
     def test_raising_low_only_moves_uncertain_to_low(self):
         from band_sweep import bands

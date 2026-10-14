@@ -233,9 +233,11 @@ only ever bundled at build time.
   direction.
 - **Scores are calibrated, and bands are set to avoid false alarms.** The raw
   classifier's scores are rescaled to match how often it's actually right, and
-  "HIGH" needs 90% or more, and "LOW" needs under 15%. In the benchmark,
-  under 3% of real images were labeled HIGH, and at most 10% of AI images were
-  labeled LOW. The trade-off is that many images honestly come out UNCERTAIN.
+  "HIGH" needs 90% or more. "LOW" needs under 20% for photos and under 15% for
+  video. In the benchmarks, at most 5% of real images were labeled HIGH, and at most
+  10% of unedited AI images were labeled LOW (up to 20% after edits such as grain or
+  sharpening). The trade-off is that many images honestly come out UNCERTAIN: about
+  half of real phone photos.
 
 ## Contributing
 

@@ -25,7 +25,10 @@ import com.genned.domain.model.SignalType
  *    signal (e.g. no generator metadata found) never pushes the likelihood down,
  *    since absence of evidence is not evidence of absence.
  */
-class EvidenceEngine {
+class EvidenceEngine(
+    /** aiLikelihood below this is LOW: [EvidenceWeights.PHOTO_LOW_THRESHOLD] for photos. */
+    private val lowThreshold: Float = EvidenceWeights.LOW_THRESHOLD,
+) {
 
     fun aggregate(signals: List<DetectionSignal>): AnalysisResult {
         val limitations = buildLimitations(signals)
@@ -88,7 +91,7 @@ class EvidenceEngine {
 
     private fun classify(aiLikelihood: Float): Classification = when {
         aiLikelihood >= EvidenceWeights.HIGH_THRESHOLD -> Classification.HIGH
-        aiLikelihood < EvidenceWeights.LOW_THRESHOLD -> Classification.LOW
+        aiLikelihood < lowThreshold -> Classification.LOW
         else -> Classification.UNCERTAIN
     }
 

@@ -51,6 +51,7 @@ from evaluate import (  # noqa: E402 - share the image pipeline + metrics with e
     CommforOnnx,
     APP_CALIBRATION,
     APP_VIDEO_CALIBRATION,
+    VIDEO_LOW_THRESHOLD,
     Prediction,
     calibrated_probability,
     app_normalize,
@@ -214,11 +215,11 @@ def evaluate_videos(args: argparse.Namespace) -> None:
     for model, model_predictions in predictions.items():
         print(f"=== {name} | {model} | video (5 frames, app pipeline) | {len(model_predictions)} videos, "
               f"mean {np.mean(frame_counts):.1f} frames decoded ===")
-        print_report(model_predictions, 0.5)
+        print_report(model_predictions, 0.5, VIDEO_LOW_THRESHOLD)
         if args.json_dir:
             args.json_dir.mkdir(parents=True, exist_ok=True)
             payload = {"model": model, "dataset": name, "condition": "video", "preprocess": "video5",
-                       "calibration": None, "metrics": compute_metrics(model_predictions, 0.5)}
+                       "calibration": None, "metrics": compute_metrics(model_predictions, 0.5, VIDEO_LOW_THRESHOLD)}
             safe = model.replace(" ", "_").replace("/", "_")
             (args.json_dir / f"{safe}__{name}__video__video5.json").write_text(json.dumps(payload, indent=2))
 
