@@ -79,6 +79,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
         // ONNX Runtime ships native .so libraries per ABI. The universal APK keeps all of
         // them; the per-ABI APKs below carry one each.
@@ -159,7 +160,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     // Content Credentials (C2PA) reading and verification, Android 9+ (see C2PAProvider).
-    implementation(libs.c2pa.android)
+    // BouncyCastle is only used by the library's certificate-request (signing) code, which
+    // Genned never calls; verification happens in the native Rust SDK. Leaving it out saves
+    // several MB (its consumer R8 rules would keep all of it).
+    implementation(libs.c2pa.android) {
+        exclude(group = "org.bouncycastle")
+    }
 
     implementation(libs.exifinterface)
 
