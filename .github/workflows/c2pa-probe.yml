@@ -147,4 +147,6 @@ jobs:
               head -c 1500 "$f"; echo
             fi
           done
+          echo "== FULL anchors.pem BEGIN"; cat anchors.pem; echo "== FULL anchors.pem END"
+          for c in $(awk '/BEGIN CERT/{n++} {print > ("itl_" n ".pem")}' anchors.pem; ls itl_*.pem); do openssl x509 -in "$c" -noout -subject -enddate 2>/dev/null | tr '\n' ' '; echo; done
           echo "== sha256"; sha256sum C2PA-TRUST-LIST.pem anchors.pem allowed.pem store.cfg 2>/dev/null || true
