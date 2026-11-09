@@ -1,5 +1,7 @@
 package com.genned.app.data.analysis
 
+import com.genned.app.R
+import com.genned.app.text.Texts
 import com.genned.app.data.storage.HistoryRepository
 import com.genned.domain.evidence.EvidenceEngine
 import com.genned.domain.model.AnalysisInput
@@ -26,6 +28,7 @@ class AnalyzeImageUseCase(
     private val visualProviders: List<DetectionProvider>,
     private val evidenceEngine: EvidenceEngine,
     private val historyRepository: HistoryRepository,
+    private val texts: Texts,
 ) {
     suspend fun run(
         input: AnalysisInput,
@@ -53,7 +56,7 @@ class AnalyzeImageUseCase(
         providers.map { provider ->
             async {
                 runCatching { provider.analyze(input) }.getOrElse {
-                    DetectionSignal.error(provider.signalType, "This detector failed unexpectedly.")
+                    DetectionSignal.error(provider.signalType, texts.get(R.string.signal_failed_unexpectedly))
                 }
             }
         }.awaitAll()

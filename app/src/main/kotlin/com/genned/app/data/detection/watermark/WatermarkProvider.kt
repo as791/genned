@@ -1,5 +1,7 @@
 package com.genned.app.data.detection.watermark
 
+import com.genned.app.R
+import com.genned.app.text.Texts
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalType
@@ -18,12 +20,9 @@ import com.genned.domain.provider.DetectionProvider
  * Revisit if a vendor ships an on-device or licensable verification SDK; wire it in
  * here behind this same interface so nothing else in the app needs to change.
  */
-class WatermarkProvider : DetectionProvider {
+class WatermarkProvider(private val texts: Texts) : DetectionProvider {
     override val signalType: SignalType = SignalType.WATERMARK
 
     override suspend fun analyze(image: AnalysisInput): DetectionSignal =
-        DetectionSignal.unavailable(
-            signalType,
-            "Known-watermark checking is not available on-device for this build.",
-        )
+        DetectionSignal.unavailable(signalType, texts.get(R.string.watermark_unavailable))
 }

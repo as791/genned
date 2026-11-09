@@ -42,17 +42,18 @@ fun SignalCard(signal: DetectionSignal, modifier: Modifier = Modifier) {
 
             val score = signal.score
             val summary = when {
-                signal.availability == SignalAvailability.UNAVAILABLE -> "Unavailable"
-                signal.availability == SignalAvailability.ERROR -> "Couldn't be checked"
-                signal.type == SignalType.AI_CLASSIFIER && score != null -> "${(score * 100).toInt()}% AI probability"
+                signal.availability == SignalAvailability.UNAVAILABLE -> stringResource(R.string.signal_summary_unavailable)
+                signal.availability == SignalAvailability.ERROR -> stringResource(R.string.signal_summary_error)
+                signal.type == SignalType.AI_CLASSIFIER && score != null ->
+                    stringResource(R.string.signal_summary_ai_probability, (score * 100).toInt())
                 // Inverted polarity: ExifMetadataProvider scores 0 when camera metadata is present.
                 signal.type == SignalType.EXIF_METADATA -> if (score == 0f) {
                     stringResource(R.string.signal_exif_camera_metadata_present)
                 } else {
                     stringResource(R.string.signal_exif_no_camera_metadata)
                 }
-                score != null && score > 0f -> "Found"
-                else -> "Not found"
+                score != null && score > 0f -> stringResource(R.string.signal_summary_found)
+                else -> stringResource(R.string.signal_summary_not_found)
             }
             Text(text = summary, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(4.dp))

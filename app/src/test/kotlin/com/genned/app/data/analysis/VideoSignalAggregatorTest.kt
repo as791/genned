@@ -1,15 +1,28 @@
 package com.genned.app.data.analysis
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import com.genned.app.data.detection.classifier.ModelConfig
+import com.genned.app.text.ResourceTexts
 import com.genned.domain.evidence.EvidenceWeights
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
-/** Pure logic, no Android dependency — runs as a plain JUnit test. */
+/** Runs under Robolectric so descriptions come from the real string resources (plurals included). */
+@RunWith(RobolectricTestRunner::class)
 class VideoSignalAggregatorTest {
+
+    private val texts = ResourceTexts(ApplicationProvider.getApplicationContext<Context>().resources)
+
+    private fun aggregate(
+        perFrameSignals: List<DetectionSignal>,
+        videoProbability: (Double) -> Float = ModelConfig::videoCalibratedProbability,
+    ) = VideoSignalAggregator.aggregateFrameSignals(perFrameSignals, texts, videoProbability)
 
     private fun frameSignal(score: Float, confidence: Float = 1f, rawScore: Double? = null) = DetectionSignal(
         type = SignalType.AI_CLASSIFIER,
@@ -27,7 +40,7 @@ class VideoSignalAggregatorTest {
 
     @Test
     fun `averages frames in logit space, applies the video calibration and averages confidences`() {
-        val result = VideoSignalAggregator.aggregateFrameSignals(
+        val result = aggregate(
             listOf(frameSignal(0.2f, 0.5f), frameSignal(0.4f, 0.7f), frameSignal(0.6f, 0.9f)),
         )
 
@@ -39,7 +52,7 @@ class VideoSignalAggregatorTest {
 
     @Test
     fun `uses singular wording for a single frame`() {
-        val result = VideoSignalAggregator.aggregateFrameSignals(listOf(frameSignal(0.9f)))
+        val result = aggregate(listOf(frameSignal(0.9f)))
 
         assertThat(result.description).contains("1 sampled frame")
         assertThat(result.description).doesNotContain("1 sampled frames")
@@ -50,7 +63,7 @@ class VideoSignalAggregatorTest {
         // In the DF26 benchmark, real talking-head videos averaged ~0.83 per frame with the
         // image calibration, and 26% of them showed HIGH. The video calibration must not
         // let that happen.
-        val result = VideoSignalAggregator.aggregateFrameSignals(List(5) { frameSignal(0.83f) })
+        val result = aggregate(List(5) { frameSignal(0.83f) })
 
         assertThat(result.score!!).isLessThan(EvidenceWeights.HIGH_THRESHOLD)
         assertThat(result.score!!).isLessThan(0.6f)
@@ -60,7 +73,7 @@ class VideoSignalAggregatorTest {
     fun `a strongly AI-looking clip is still only UNCERTAIN`() {
         // Frames that would read 95% as photos: for video that evidence is much weaker
         // (video AUC 0.65-0.79), so the clip stays out of HIGH.
-        val result = VideoSignalAggregator.aggregateFrameSignals(List(5) { frameSignal(0.95f) })
+        val result = aggregate(List(5) { frameSignal(0.95f) })
 
         assertThat(result.score!!).isLessThan(EvidenceWeights.HIGH_THRESHOLD)
         assertThat(result.score!!).isGreaterThan(0.6f)
@@ -68,7 +81,7 @@ class VideoSignalAggregatorTest {
 
     @Test
     fun `only near-certain frames can take a video to HIGH`() {
-        val result = VideoSignalAggregator.aggregateFrameSignals(List(5) { frameSignal(0.995f) })
+        val result = aggregate(List(5) { frameSignal(0.995f) })
 
         assertThat(result.score!!).isAtLeast(EvidenceWeights.HIGH_THRESHOLD)
     }
@@ -76,14 +89,14 @@ class VideoSignalAggregatorTest {
     @Test
     fun `video score increases with frame scores`() {
         val scores = listOf(0.1f, 0.3f, 0.5f, 0.7f, 0.9f, 0.99f).map { frame ->
-            VideoSignalAggregator.aggregateFrameSignals(List(5) { frameSignal(frame) }).score!!
+            aggregate(List(5) { frameSignal(frame) }).score!!
         }
         assertThat(scores).isInStrictOrder()
     }
 
     @Test
     fun `returns unavailable when no frame produced a usable score`() {
-        val result = VideoSignalAggregator.aggregateFrameSignals(
+        val result = aggregate(
             listOf(
                 DetectionSignal.unavailable(SignalType.AI_CLASSIFIER, "not bundled"),
                 DetectionSignal.error(SignalType.AI_CLASSIFIER, "failed"),
@@ -96,7 +109,7 @@ class VideoSignalAggregatorTest {
 
     @Test
     fun `returns an error, not unavailable, when every frame failed`() {
-        val result = VideoSignalAggregator.aggregateFrameSignals(
+        val result = aggregate(
             listOf(
                 DetectionSignal.error(SignalType.AI_CLASSIFIER, "failed"),
                 DetectionSignal.error(SignalType.AI_CLASSIFIER, "failed"),
@@ -110,14 +123,14 @@ class VideoSignalAggregatorTest {
 
     @Test
     fun `returns unavailable for an empty frame list`() {
-        val result = VideoSignalAggregator.aggregateFrameSignals(emptyList())
+        val result = aggregate(emptyList())
 
         assertThat(result.availability).isEqualTo(SignalAvailability.UNAVAILABLE)
     }
 
     @Test
     fun `ignores unavailable and error frames when averaging the rest`() {
-        val result = VideoSignalAggregator.aggregateFrameSignals(
+        val result = aggregate(
             listOf(
                 frameSignal(0.8f),
                 DetectionSignal.unavailable(SignalType.AI_CLASSIFIER, "not bundled"),
@@ -133,7 +146,7 @@ class VideoSignalAggregatorTest {
     @Test
     fun `frames carrying a raw score are averaged raw and passed to the given video calibration`() {
         var received: Double? = null
-        val result = VideoSignalAggregator.aggregateFrameSignals(
+        val result = aggregate(
             listOf(frameSignal(0.9f, rawScore = 1.0), frameSignal(0.1f, rawScore = -0.4)),
             videoProbability = { mean -> received = mean; 0.42f },
         )
@@ -146,7 +159,7 @@ class VideoSignalAggregatorTest {
     @Test
     fun `frames without a raw score fall back to inverting the photo calibration`() {
         var received: Double? = null
-        VideoSignalAggregator.aggregateFrameSignals(
+        aggregate(
             listOf(frameSignal(0.7f)),
             videoProbability = { mean -> received = mean; 0.5f },
         )

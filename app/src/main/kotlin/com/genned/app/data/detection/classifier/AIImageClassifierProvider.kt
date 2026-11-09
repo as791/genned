@@ -7,6 +7,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
+import com.genned.app.R
+import com.genned.app.text.ResourceTexts
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.CropRect
 import com.genned.domain.model.DetectionSignal
@@ -44,6 +46,7 @@ import java.nio.FloatBuffer
 class AIImageClassifierProvider(private val context: Context) : DetectionProvider {
     override val signalType: SignalType = SignalType.AI_CLASSIFIER
 
+    private val texts = ResourceTexts(context.resources)
     private val sessionMutex = Mutex()
     private var primarySession: OrtSession? = null
     private var communityForensicsSession: OrtSession? = null
@@ -74,17 +77,11 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
         if (video) initVideoSession()
         val communityForensics = if (video) videoCommunityForensicsSession else communityForensicsSession
         val primary = primarySession
-            ?: return@withContext DetectionSignal.unavailable(
-                signalType,
-                "The on-device visual classifier is not bundled in this build.",
-            )
+            ?: return@withContext DetectionSignal.unavailable(signalType, texts.get(R.string.classifier_not_bundled))
 
         try {
             val decoded = BitmapFactory.decodeFile(image.normalizedFilePath)
-                ?: return@withContext DetectionSignal.error(
-                    signalType,
-                    "Could not decode the normalized image for classification.",
-                )
+                ?: return@withContext DetectionSignal.error(signalType, texts.get(R.string.classifier_decode_failed))
             // A shared screenshot: classify only the picture inside it, not the app around it.
             val crop = image.classifierCrop?.takeIf { it.fitsIn(decoded.width, decoded.height) }
             val bitmap = if (crop != null) {
@@ -114,7 +111,7 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
                 ).let(CommunityForensicsConfig::logit).also { input.recycle() }
             }
             if (primaryGaps.any { it == null } || (communityForensicsInput != null && communityForensicsGap == null)) {
-                return@withContext DetectionSignal.error(signalType, "The visual classifier returned an unexpected output.")
+                return@withContext DetectionSignal.error(signalType, texts.get(R.string.classifier_unexpected_output))
             }
             val primaryGap = primaryGaps.filterNotNull().average()
 
@@ -137,16 +134,16 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
                 availability = SignalAvailability.AVAILABLE,
                 score = aiProbability,
                 confidence = ModelConfig.BASE_CONFIDENCE,
-                description = "The on-device visual classifier estimates a " +
-                    "${(aiProbability * 100).toInt()}% probability this image is " +
-                    "AI-generated." +
-                    if (crop != null) " This looks like a screenshot, so only the picture in it was checked." else "",
+                description = texts.get(
+                    if (crop != null) R.string.classifier_estimate_screenshot else R.string.classifier_estimate,
+                    (aiProbability * 100).toInt(),
+                ),
                 evidence = if (communityForensicsGap != null) EnsembleConfig.DISPLAY_NAME else ModelConfig.DISPLAY_NAME,
                 rawScore = rawScore,
             )
         } catch (e: Exception) {
             Log.e(TAG, "Classifier inference failed; reporting the signal as ERROR", e)
-            DetectionSignal.error(signalType, "The visual classifier failed to run on this image.")
+            DetectionSignal.error(signalType, texts.get(R.string.classifier_failed))
         }
     }
 

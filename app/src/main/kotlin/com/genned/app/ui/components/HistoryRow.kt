@@ -22,8 +22,10 @@ import com.genned.app.data.storage.HistoryEntry
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
-private val timeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy · h:mm a")
+// The phone's own date and time style and language.
+private val timeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
 
 @Composable
 fun HistoryRow(

@@ -28,6 +28,8 @@ import com.genned.domain.model.SignalType
 class EvidenceEngine(
     /** aiLikelihood below this is LOW: [EvidenceWeights.PHOTO_LOW_THRESHOLD] for photos. */
     private val lowThreshold: Float = EvidenceWeights.LOW_THRESHOLD,
+    /** User-facing limitation texts (the app passes translatable ones). */
+    private val texts: EvidenceTexts = EvidenceTexts.English,
 ) {
 
     fun aggregate(signals: List<DetectionSignal>): AnalysisResult {
@@ -96,22 +98,16 @@ class EvidenceEngine(
     }
 
     private fun buildLimitations(signals: List<DetectionSignal>): List<String> {
-        val limitations = mutableListOf(
-            "AI detection is probabilistic. It can produce false positives and false " +
-                "negatives, and newer generation models may not be well represented in " +
-                "the classifier's training data.",
-        )
+        val limitations = mutableListOf(texts.probabilistic)
 
         val classifierSignal = signals.firstOrNull { it.type == SignalType.AI_CLASSIFIER }
         if (classifierSignal == null || classifierSignal.availability != SignalAvailability.AVAILABLE) {
-            limitations += "The on-device visual classifier did not run for this image; " +
-                "the estimate below relies on metadata signals only and is less reliable."
+            limitations += texts.classifierDidNotRun
         }
 
         val credentialsSignal = signals.firstOrNull { it.type == SignalType.CONTENT_CREDENTIALS }
         if (credentialsSignal == null || credentialsSignal.availability != SignalAvailability.AVAILABLE) {
-            limitations += "Content Credentials (C2PA) verification is not available in " +
-                "this build, so no cryptographic provenance could be checked."
+            limitations += texts.noVerifiedCredentials
         }
 
         val generatorSignal = signals.firstOrNull { it.type == SignalType.GENERATOR_METADATA }
@@ -119,9 +115,7 @@ class EvidenceEngine(
             generatorSignal.availability == SignalAvailability.AVAILABLE &&
             (generatorSignal.score == null || generatorSignal.score == 0f)
         ) {
-            limitations += "No generator metadata was found, but this does not indicate " +
-                "the image is authentic — social platforms and editing tools frequently " +
-                "strip metadata."
+            limitations += texts.noGeneratorMetadata
         }
 
         return limitations

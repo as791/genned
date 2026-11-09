@@ -1,14 +1,16 @@
 package com.genned.app.data.analysis
 
+import com.genned.app.R
 import com.genned.app.data.detection.classifier.ModelConfig
+import com.genned.app.text.Texts
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
 
 /**
  * Combines one [DetectionSignal] per sampled video frame (all [SignalType.AI_CLASSIFIER])
- * into a single classifier signal for the video as a whole. Pure and Android-free
- * so it's directly unit-testable without Robolectric or a real video file.
+ * into a single classifier signal for the video as a whole. Pure logic apart from its
+ * [Texts], so it's unit-testable without a real video file.
  *
  * Frames are combined in logit space (each frame's image-calibrated score is mapped
  * back to its logit gap, and the gaps are averaged), then the *video* calibration is
@@ -25,6 +27,7 @@ object VideoSignalAggregator {
      */
     fun aggregateFrameSignals(
         perFrameSignals: List<DetectionSignal>,
+        texts: Texts,
         videoProbability: (Double) -> Float = ModelConfig::videoCalibratedProbability,
     ): DetectionSignal {
         val available = perFrameSignals.filter {
@@ -35,16 +38,9 @@ object VideoSignalAggregator {
             if (perFrameSignals.isNotEmpty() &&
                 perFrameSignals.none { it.availability == SignalAvailability.UNAVAILABLE }
             ) {
-                return DetectionSignal.error(
-                    SignalType.AI_CLASSIFIER,
-                    "The visual classifier couldn't analyze the sampled video frames.",
-                )
+                return DetectionSignal.error(SignalType.AI_CLASSIFIER, texts.get(R.string.video_classifier_failed))
             }
-            return DetectionSignal.unavailable(
-                SignalType.AI_CLASSIFIER,
-                "The on-device visual classifier is not bundled in this build, so sampled video " +
-                    "frames could not be analyzed.",
-            )
+            return DetectionSignal.unavailable(SignalType.AI_CLASSIFIER, texts.get(R.string.video_classifier_not_bundled))
         }
 
         val scores = available.map { it.score!! }
@@ -59,11 +55,13 @@ object VideoSignalAggregator {
             availability = SignalAvailability.AVAILABLE,
             score = videoScore,
             confidence = meanConfidence,
-            description = "The on-device visual classifier estimates a ${(videoScore * 100).toInt()}% " +
-                "AI-generated probability for this video from ${available.size} sampled frame" +
-                "${if (available.size == 1) "" else "s"}, calibrated for video, which is harder to " +
-                "judge than photos.",
-            evidence = "Per-frame AI probability: " + scores.joinToString(", ") { "${(it * 100).toInt()}%" },
+            description = texts.quantity(
+                R.plurals.video_classifier_estimate, available.size, (videoScore * 100).toInt(), available.size,
+            ),
+            evidence = texts.get(
+                R.string.video_per_frame_evidence,
+                scores.joinToString(", ") { texts.get(R.string.card_value_percent, (it * 100).toInt()) },
+            ),
         )
     }
 }

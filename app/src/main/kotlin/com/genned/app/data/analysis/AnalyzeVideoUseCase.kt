@@ -1,9 +1,11 @@
 package com.genned.app.data.analysis
 
 import android.net.Uri
+import com.genned.app.R
 import com.genned.app.data.storage.HistoryRepository
 import com.genned.app.data.video.SampledFrame
 import com.genned.app.data.video.VideoFrameSampler
+import com.genned.app.text.Texts
 import com.genned.domain.evidence.EvidenceEngine
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.AnalysisResult
@@ -35,6 +37,7 @@ class AnalyzeVideoUseCase(
     private val historyRepository: HistoryRepository,
     /** Video calibration of the classifier that scores the frames (see VideoSignalAggregator). */
     private val videoProbability: (Double) -> Float,
+    private val texts: Texts,
 ) {
     suspend fun run(
         videoUri: Uri,
@@ -51,25 +54,16 @@ class AnalyzeVideoUseCase(
             val perFrameSignals = coroutineScope {
                 frames.map { frame -> async { analyzeFrame(frame) } }.awaitAll()
             }
-            val classifierSignal = VideoSignalAggregator.aggregateFrameSignals(perFrameSignals, videoProbability)
+            val classifierSignal = VideoSignalAggregator.aggregateFrameSignals(perFrameSignals, texts, videoProbability)
             val watermarkSignal = runCatching { watermarkProvider.analyze(frameInput(middleFrame)) }
-                .getOrElse { DetectionSignal.error(watermarkProvider.signalType, "This detector failed unexpectedly.") }
+                .getOrElse { DetectionSignal.error(watermarkProvider.signalType, texts.get(R.string.signal_failed_unexpectedly)) }
 
             val signals = listOf(
                 classifierSignal,
                 watermarkSignal,
-                DetectionSignal.unavailable(
-                    SignalType.GENERATOR_METADATA,
-                    "Metadata inspection is not yet implemented for video files.",
-                ),
-                DetectionSignal.unavailable(
-                    SignalType.EXIF_METADATA,
-                    "Metadata inspection is not yet implemented for video files.",
-                ),
-                DetectionSignal.unavailable(
-                    SignalType.CONTENT_CREDENTIALS,
-                    "Content Credentials checking is not enabled in this build.",
-                ),
+                DetectionSignal.unavailable(SignalType.GENERATOR_METADATA, texts.get(R.string.video_metadata_not_implemented)),
+                DetectionSignal.unavailable(SignalType.EXIF_METADATA, texts.get(R.string.video_metadata_not_implemented)),
+                DetectionSignal.unavailable(SignalType.CONTENT_CREDENTIALS, texts.get(R.string.credentials_unavailable)),
             )
 
             val baseResult = evidenceEngine.aggregate(signals)
@@ -84,7 +78,7 @@ class AnalyzeVideoUseCase(
 
     private suspend fun analyzeFrame(frame: SampledFrame): DetectionSignal =
         runCatching { classifierProvider.analyze(frameInput(frame)) }
-            .getOrElse { DetectionSignal.error(classifierProvider.signalType, "This detector failed unexpectedly.") }
+            .getOrElse { DetectionSignal.error(classifierProvider.signalType, texts.get(R.string.signal_failed_unexpectedly)) }
 
     private fun frameInput(frame: SampledFrame) = AnalysisInput(
         originalFilePath = frame.file.absolutePath,
@@ -96,7 +90,5 @@ class AnalyzeVideoUseCase(
     )
 
     private fun videoLimitation(frameCount: Int): String =
-        "This is a video: the estimate above is based on classifying $frameCount sampled frames as " +
-            "still images, not the full video, audio, or motion/temporal analysis. Frame-level " +
-            "classification may miss video-specific manipulation."
+        texts.quantity(R.plurals.video_limitation, frameCount, frameCount)
 }

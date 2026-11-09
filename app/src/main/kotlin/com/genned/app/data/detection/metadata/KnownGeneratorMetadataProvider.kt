@@ -1,6 +1,8 @@
 package com.genned.app.data.detection.metadata
 
 import androidx.exifinterface.media.ExifInterface
+import com.genned.app.R
+import com.genned.app.text.Texts
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
@@ -18,7 +20,7 @@ import java.io.File
  * of a human origin, since this metadata is trivially stripped by re-saving or
  * sharing an image.
  */
-class KnownGeneratorMetadataProvider : DetectionProvider {
+class KnownGeneratorMetadataProvider(private val texts: Texts) : DetectionProvider {
     override val signalType: SignalType = SignalType.GENERATOR_METADATA
 
     override suspend fun analyze(image: AnalysisInput): DetectionSignal = withContext(Dispatchers.IO) {
@@ -43,9 +45,7 @@ class KnownGeneratorMetadataProvider : DetectionProvider {
                 availability = SignalAvailability.AVAILABLE,
                 score = 0f,
                 confidence = 0.5f,
-                description = "No generator metadata found. This does not indicate that the " +
-                    "image is authentic — social platforms and messaging apps frequently strip " +
-                    "metadata on upload or download.",
+                description = texts.get(R.string.generator_none_found),
             )
         }
     }
@@ -81,9 +81,8 @@ class KnownGeneratorMetadataProvider : DetectionProvider {
             val field = "PNG \"${chunk.keyword}\" chunk"
             if (chunk.keyword.equals(GeneratorSignatures.SD_PARAMETERS_CHUNK_KEYWORD, ignoreCase = true)) {
                 return MetadataMatch(
-                    evidence = "PNG \"parameters\" chunk (Stable Diffusion–family generation metadata)",
-                    description = "Image metadata contains a PNG \"parameters\" text chunk, where " +
-                        "Stable Diffusion–family tools store generation settings.",
+                    evidence = texts.get(R.string.generator_png_parameters_evidence),
+                    description = texts.get(R.string.generator_png_parameters),
                 )
             }
             val match = if (chunk.keyword.equals("Software", ignoreCase = true)) {
@@ -99,12 +98,12 @@ class KnownGeneratorMetadataProvider : DetectionProvider {
 
     private fun softwareMatch(field: String, tool: String) = MetadataMatch(
         evidence = "$field: $tool",
-        description = "Image metadata ($field) names an AI image-generation tool.",
+        description = texts.get(R.string.generator_names_tool, field),
     )
 
     private fun parametersMatch(field: String, label: String) = MetadataMatch(
         evidence = "$field: $label",
-        description = "Image metadata ($field) contains AI image-generation parameters.",
+        description = texts.get(R.string.generator_has_parameters, field),
     )
 
     private fun looksLikePng(file: File): Boolean = try {

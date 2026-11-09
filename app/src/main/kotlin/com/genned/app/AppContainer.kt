@@ -14,6 +14,9 @@ import com.genned.app.data.storage.AnalysisDatabase
 import com.genned.app.data.storage.HistoryRepository
 import com.genned.app.data.storage.ThumbnailStore
 import com.genned.app.data.video.VideoFrameSampler
+import com.genned.app.text.ResourceEvidenceTexts
+import com.genned.app.text.ResourceTexts
+import com.genned.app.text.Texts
 import com.genned.domain.evidence.EvidenceEngine
 import com.genned.domain.evidence.EvidenceWeights
 
@@ -34,15 +37,19 @@ class AppContainer(context: Context) {
     val historyRepository by lazy { HistoryRepository(database.analysisDao(), thumbnailStore) }
     val resultCardRenderer by lazy { ResultCardRenderer(appContext) }
 
-    private val c2paProvider by lazy { C2PAProvider() }
-    private val exifMetadataProvider by lazy { ExifMetadataProvider() }
-    private val generatorMetadataProvider by lazy { KnownGeneratorMetadataProvider() }
+    /** User-facing text for signals and results, from string resources (translatable). */
+    private val texts: Texts by lazy { ResourceTexts(appContext.resources) }
+    private val evidenceTexts by lazy { ResourceEvidenceTexts(texts) }
+
+    private val c2paProvider by lazy { C2PAProvider(texts) }
+    private val exifMetadataProvider by lazy { ExifMetadataProvider(texts) }
+    private val generatorMetadataProvider by lazy { KnownGeneratorMetadataProvider(texts) }
     private val classifierProvider by lazy { AIImageClassifierProvider(appContext) }
-    private val watermarkProvider by lazy { WatermarkProvider() }
+    private val watermarkProvider by lazy { WatermarkProvider(texts) }
 
     /** Video keeps the default LOW cut-off; photos and screen captures use the photo one. */
-    private val evidenceEngine by lazy { EvidenceEngine() }
-    private val photoEvidenceEngine by lazy { EvidenceEngine(EvidenceWeights.PHOTO_LOW_THRESHOLD) }
+    private val evidenceEngine by lazy { EvidenceEngine(EvidenceWeights.LOW_THRESHOLD, evidenceTexts) }
+    private val photoEvidenceEngine by lazy { EvidenceEngine(EvidenceWeights.PHOTO_LOW_THRESHOLD, evidenceTexts) }
 
     val analyzeImageUseCase by lazy {
         AnalyzeImageUseCase(
@@ -51,6 +58,7 @@ class AppContainer(context: Context) {
             visualProviders = listOf(classifierProvider, watermarkProvider),
             evidenceEngine = photoEvidenceEngine,
             historyRepository = historyRepository,
+            texts = texts,
         )
     }
 
@@ -62,6 +70,7 @@ class AppContainer(context: Context) {
             evidenceEngine = evidenceEngine,
             historyRepository = historyRepository,
             videoProbability = classifierProvider::videoProbability,
+            texts = texts,
         )
     }
 }

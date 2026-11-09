@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.text.StaticLayout
 import android.text.TextPaint
+import androidx.annotation.StringRes
 import com.genned.app.R
 import com.genned.domain.model.AnalysisResult
 import com.genned.domain.model.Classification
@@ -91,8 +92,7 @@ class ResultCardRenderer(private val context: Context) {
         }
 
         y += 50f
-        val disclaimerText =
-            "AI detection is probabilistic. It can produce false positives and false negatives."
+        val disclaimerText = context.getString(R.string.card_disclaimer)
         val disclaimerPaint = TextPaint().apply {
             color = mutedColor
             textSize = 28f
@@ -111,7 +111,7 @@ class ResultCardRenderer(private val context: Context) {
         canvas.restore()
 
         val footerPaint = TextPaint().apply { color = mutedColor; textSize = 28f; isAntiAlias = true }
-        canvas.drawText("Checked with Genned", margin, height - 80f, footerPaint)
+        canvas.drawText(context.getString(R.string.card_footer), margin, height - 80f, footerPaint)
 
         val outFile = File(sharedCardsDir(context), "result_${UUID.randomUUID()}.png")
         FileOutputStream(outFile).use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
@@ -120,22 +120,22 @@ class ResultCardRenderer(private val context: Context) {
     }
 
     private fun buildRows(result: AnalysisResult): List<Pair<String, String>> {
-        fun describe(type: SignalType, label: String): Pair<String, String> {
+        fun describe(type: SignalType, @StringRes label: Int): Pair<String, String> {
             val signal = result.signals.firstOrNull { it.type == type }
             val available = signal != null && signal.availability == SignalAvailability.AVAILABLE
             val score = signal?.score
             val value = when {
-                !available || score == null -> "Not available"
-                type == SignalType.AI_CLASSIFIER -> "${(score * 100).toInt()}%"
-                score > 0f -> "Found"
-                else -> "Not found"
+                !available || score == null -> context.getString(R.string.card_value_not_available)
+                type == SignalType.AI_CLASSIFIER -> context.getString(R.string.card_value_percent, (score * 100).toInt())
+                score > 0f -> context.getString(R.string.signal_summary_found)
+                else -> context.getString(R.string.signal_summary_not_found)
             }
-            return label to value
+            return context.getString(label) to value
         }
         return listOf(
-            describe(SignalType.AI_CLASSIFIER, "Visual analysis"),
-            describe(SignalType.GENERATOR_METADATA, "Generator metadata"),
-            describe(SignalType.CONTENT_CREDENTIALS, "Content credentials"),
+            describe(SignalType.AI_CLASSIFIER, R.string.card_row_visual),
+            describe(SignalType.GENERATOR_METADATA, R.string.card_row_generator_metadata),
+            describe(SignalType.CONTENT_CREDENTIALS, R.string.card_row_content_credentials),
         )
     }
 

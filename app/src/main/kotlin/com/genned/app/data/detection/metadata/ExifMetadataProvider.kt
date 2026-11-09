@@ -1,6 +1,8 @@
 package com.genned.app.data.detection.metadata
 
 import androidx.exifinterface.media.ExifInterface
+import com.genned.app.R
+import com.genned.app.text.Texts
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
@@ -21,7 +23,7 @@ import java.io.File
  * Generator-tool string matching is a separate, stronger signal — see
  * [KnownGeneratorMetadataProvider].
  */
-class ExifMetadataProvider : DetectionProvider {
+class ExifMetadataProvider(private val texts: Texts) : DetectionProvider {
     override val signalType: SignalType = SignalType.EXIF_METADATA
 
     override suspend fun analyze(image: AnalysisInput): DetectionSignal = withContext(Dispatchers.IO) {
@@ -29,7 +31,7 @@ class ExifMetadataProvider : DetectionProvider {
         val exif = try {
             ExifInterface(file)
         } catch (e: Exception) {
-            return@withContext DetectionSignal.error(signalType, "Could not read EXIF metadata for this file.")
+            return@withContext DetectionSignal.error(signalType, texts.get(R.string.exif_unreadable))
         }
 
         val cameraFields = listOf(
@@ -48,10 +50,7 @@ class ExifMetadataProvider : DetectionProvider {
                 availability = SignalAvailability.AVAILABLE,
                 score = 0f,
                 confidence = 0.5f,
-                description = "Camera capture metadata (${presentFields.size} field" +
-                    "${if (presentFields.size == 1) "" else "s"}, e.g. make/model/exposure) is " +
-                    "present. This is consistent with a camera-captured photo, but does not rule " +
-                    "out later AI editing or generation.",
+                description = texts.quantity(R.plurals.exif_camera_metadata_present, presentFields.size, presentFields.size),
                 evidence = presentFields.joinToString(", "),
             )
         } else {
@@ -60,10 +59,7 @@ class ExifMetadataProvider : DetectionProvider {
                 availability = SignalAvailability.AVAILABLE,
                 score = 0.3f,
                 confidence = 0.3f,
-                description = "No camera capture metadata (make, model, exposure) was found. " +
-                    "This is common for both AI-generated images and ordinary photos that were " +
-                    "re-saved, screenshotted, or shared through messaging or social apps — it is " +
-                    "weak evidence on its own.",
+                description = texts.get(R.string.exif_no_camera_metadata),
             )
         }
     }

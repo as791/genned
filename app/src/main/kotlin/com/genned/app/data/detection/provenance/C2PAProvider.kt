@@ -1,5 +1,7 @@
 package com.genned.app.data.detection.provenance
 
+import com.genned.app.R
+import com.genned.app.text.Texts
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalType
@@ -30,12 +32,9 @@ import com.genned.domain.provider.DetectionProvider
  *    and keep returning UNAVAILABLE for a present-but-invalid/unparseable manifest
  *    (that is a broken signature, not evidence either way).
  */
-class C2PAProvider : DetectionProvider {
+class C2PAProvider(private val texts: Texts) : DetectionProvider {
     override val signalType: SignalType = SignalType.CONTENT_CREDENTIALS
 
     override suspend fun analyze(image: AnalysisInput): DetectionSignal =
-        DetectionSignal.unavailable(
-            signalType,
-            "Content Credentials checking is not enabled in this build.",
-        )
+        DetectionSignal.unavailable(signalType, texts.get(R.string.credentials_unavailable))
 }
