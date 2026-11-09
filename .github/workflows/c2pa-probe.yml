@@ -72,4 +72,72 @@ jobs:
           wc -l classlist.txt
           javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -v '^Compiled from' | head -400
           echo "== strings mentioning trust / settings / validation"
-          javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -iE 'trust|setting|valid|verify|status' | sort -u | head -80
+          javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -iE 'trust|setting|valid|verify|status' | sort -u | head -80 || true
+
+  # Test fixtures for the app's manifest interpreter: c2patool (same c2pa-rs core as the
+  # Android library) signs a test image with its sample certificate, and reads each case
+  # with and without that certificate as a trust anchor. Also fetches the public trust lists.
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install c2patool
+        run: cargo install c2patool --locked 2>&1 | tail -3 && c2patool --version
+      - name: Sample keys and an image
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/contentauth/c2pa-rs src
+          ls src/cli/sample | head -40
+          cp src/cli/sample/es256_certs.pem src/cli/sample/es256_private.key .
+          img=$(ls src/sdk/tests/fixtures/earth_apollo17.jpg 2>/dev/null || find src -name '*.jpg' -size +20k | head -1)
+          echo "base image: $img"; cp "$img" base.jpg
+          # The last certificate in the chain is the root: use it as the trust anchor.
+          awk '/BEGIN CERT/{n++} {print > ("cert" n ".pem")}' es256_certs.pem
+          ls cert*.pem; root=$(ls cert*.pem | sort -V | tail -1); cp "$root" anchor.pem
+          openssl x509 -in anchor.pem -noout -subject -issuer
+          python3 - <<'PY'
+          import json
+          anchor = open("anchor.pem").read()
+          json.dump({"verify": {"verify_trust": True, "remote_manifest_fetch": False}, "trust": {"trust_anchors": anchor}},
+                    open("trusted.json", "w"))
+          json.dump({"verify": {"verify_trust": True, "remote_manifest_fetch": False}}, open("untrusted.json", "w"))
+          def manifest(source, agent):
+              return {"alg": "es256", "private_key": "es256_private.key", "sign_cert": "es256_certs.pem",
+                      "claim_generator_info": [{"name": "genned-fixture", "version": "1.0"}],
+                      "assertions": [{"label": "c2pa.actions", "data": {"actions": [
+                          {"action": "c2pa.created", "softwareAgent": {"name": agent},
+                           "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/" + source}]}}]}
+          json.dump(manifest("trainedAlgorithmicMedia", "TestGen"), open("m_ai.json", "w"))
+          json.dump(manifest("digitalCapture", "TestCamera"), open("m_capture.json", "w"))
+          json.dump(manifest("compositeWithTrainedAlgorithmicMedia", "TestEditor"), open("m_composite.json", "w"))
+          PY
+      - name: Sign and read
+        run: |
+          set -uo pipefail
+          for m in ai capture composite; do c2patool base.jpg -m m_$m.json -o $m.jpg -f > /dev/null && echo "signed $m"; done
+          # Tampered: change bytes in the image data after signing.
+          python3 -c "d=bytearray(open('ai.jpg','rb').read()); n=len(d)-2000; d[n:n+50]=bytes(50); open('tampered.jpg','wb').write(d)"
+          for f in ai capture composite tampered base; do
+            for s in untrusted trusted; do
+              echo "===== FIXTURE $f $s"
+              c2patool --settings $s.json $f.jpg 2>&1 | head -c 20000
+              echo
+            done
+          done
+      - name: Public trust lists
+        run: |
+          for u in https://raw.githubusercontent.com/c2pa-org/conformance-public/main/trust-list/C2PA-TRUST-LIST.pem \
+                   https://contentcredentials.org/trust/anchors.pem \
+                   https://contentcredentials.org/trust/allowed.pem \
+                   https://contentcredentials.org/trust/store.cfg; do
+            f=$(basename "$u")
+            code=$(curl -sSL -o "$f" -w '%{http_code}' "$u" || true)
+            echo "== $u -> HTTP $code, $(wc -c < "$f" 2>/dev/null) bytes, $(grep -c 'BEGIN CERT' "$f" 2>/dev/null) certs"
+            if grep -q 'BEGIN CERT' "$f" 2>/dev/null; then
+              awk '/BEGIN CERT/{n++} {print > ("tl_" n ".pem")}' "$f"
+              for c in tl_*.pem; do openssl x509 -in "$c" -noout -subject 2>/dev/null; done | sed 's/^/   /'
+              rm -f tl_*.pem
+            else
+              head -c 1500 "$f"; echo
+            fi
+          done
