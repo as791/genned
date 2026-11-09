@@ -128,7 +128,22 @@
     <string name="generator_names_tool">Image metadata (%1$s) names an AI image-generation tool.</string>
     <string name="generator_has_parameters">Image metadata (%1$s) contains AI image-generation parameters.</string>
     <string name="watermark_unavailable">Known-watermark checking is not available on-device for this build.</string>
-    <string name="credentials_unavailable">Content Credentials checking is not enabled in this build.</string>
+    <string name="credentials_none">No Content Credentials (C2PA) in this file. Most apps and social networks remove them, so this says nothing either way.</string>
+    <string name="credentials_trusted_ai">Verified Content Credentials signed by %1$s say this was made or edited with generative AI.</string>
+    <string name="credentials_trusted_capture">Verified Content Credentials signed by %1$s say this was captured with a camera, with no generative AI declared.</string>
+    <string name="credentials_trusted_undeclared">Verified Content Credentials signed by %1$s were found, but they don\'t say whether generative AI was used.</string>
+    <string name="credentials_untrusted_ai">Content Credentials in this file say generative AI was used, but the signer (%1$s) is not on the trusted list, so this was not counted as proof.</string>
+    <string name="credentials_untrusted">Content Credentials signed by %1$s were found, but the signer is not on the trusted list, so they were not used.</string>
+    <string name="credentials_invalid">Content Credentials were found but failed verification (the file may have been changed after signing), so they were not used.</string>
+    <string name="credentials_remote">This file links to Content Credentials stored online. Genned never goes online, so they were not checked.</string>
+    <string name="credentials_unsupported_format">Content Credentials can\'t be checked for this file type.</string>
+    <string name="credentials_needs_android_9">Checking Content Credentials needs Android 9 or newer.</string>
+    <string name="credentials_unsupported_device">Checking Content Credentials isn\'t available on this device\'s processor type.</string>
+    <string name="credentials_failed">Content Credentials could not be read from this file.</string>
+    <string name="credentials_timeout">Checking Content Credentials took too long and was skipped.</string>
+    <string name="credentials_unknown_signer">an unnamed signer</string>
+    <string name="credentials_evidence_tool">Tool named in the credentials: %1$s</string>
+    <string name="credentials_evidence_failures">Verification problems: %1$s</string>
 
     <!-- Result limitations (EvidenceEngine) -->
     <string name="limitation_probabilistic">AI detection is probabilistic. It can produce false positives and false negatives, and newer generation models may not be well represented in the classifier\'s training data.</string>

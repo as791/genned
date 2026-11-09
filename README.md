@@ -73,10 +73,14 @@ value — and those are combined transparently into one likelihood estimate:
   exposure) is weak evidence *for* a real photo; its absence is treated as
   near-zero evidence, since screenshots and social re-uploads strip EXIF
   constantly too.
-- **Content Credentials (C2PA)** — interface implemented, honestly reports
-  "unavailable" in this build. If ever enabled, a cryptographically valid
-  manifest *overrides* the probabilistic blend rather than being averaged
-  into it.
+- **Content Credentials (C2PA)** — signed records some generators, editors and
+  cameras embed (ChatGPT, Adobe Firefly, Google, Samsung and others). Genned verifies
+  them on the phone (Android 9+) against the official C2PA and Content Authenticity
+  trust lists bundled with the app. Only credentials from a trusted signer that say
+  "made with generative AI" or "captured with a camera" decide the result; they
+  *override* the probabilistic blend. Credentials from unknown signers, or that fail
+  verification, are reported but never counted. Most apps and social networks strip
+  them, so usually there are none: save or forward the original file to keep them.
 - **Known watermark detection** — interface implemented, honestly reports
   "unavailable": no open, on-device detector exists for generative watermarks
   like SynthID as of this writing.
@@ -192,7 +196,10 @@ only ever bundled at build time.
   as published and as a copy fine-tuned for photos by this project (MIT). The fine-tuning
   used images from OpenFake (`ComplexDataLab/OpenFake`, CC-BY-SA-4.0, open-weights
   generators only) and the Defactify dataset.
-- `contentauth/c2pa-android` (referenced, not bundled): dual MIT/Apache-2.0.
+- `contentauth/c2pa-android` (Content Credentials, includes the C2PA Rust SDK): dual
+  MIT/Apache-2.0. JNA: Apache-2.0. OkHttp: Apache-2.0.
+- Bundled trust lists: C2PA Trust List (CC-BY-4.0, C2PA); Content Authenticity
+  Initiative interim trust list (public certificates).
 
 ## Known accuracy limitations
 

@@ -121,9 +121,17 @@ design; this section is what it means for your data specifically.
   releases the screen-capture session. Nothing continues running in the
   background afterward.
 
-## If C2PA support is added later
+## Content Credentials (C2PA)
 
-Per `internal-docs/ARCHITECTURE.md`'s "C2PA integration path", reading a Content
-Credentials manifest is still a fully local, on-device parse of the image's own
-embedded data — it does not require a network call or change anything in this
-document.
+Genned reads Content Credentials embedded in the file you check (Android 9 and newer).
+This is a local, on-device parse and signature check of the file's own data:
+
+- Signer certificates are checked against trust lists **bundled with the app**
+  (`app/src/main/assets/c2pa/`). Nothing is downloaded, and no certificate revocation
+  (OCSP) lookup is made.
+- Some files only point to credentials stored online. Genned does **not** fetch them;
+  the result says they were not checked.
+- The app still has no INTERNET permission. The library's request for USE_BIOMETRIC
+  (used only for signing, which Genned never does) is removed from the app manifest.
+- What the credentials say (signer, declared tool) is shown in the result and saved in
+  history like every other signal, on the phone only.

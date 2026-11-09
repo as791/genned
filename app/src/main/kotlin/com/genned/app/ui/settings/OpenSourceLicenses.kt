@@ -21,6 +21,7 @@ data class OpenSourceComponent(
 object OpenSourceLicenses {
     private const val APACHE_2 = "Apache License 2.0"
     private const val MIT = "MIT License"
+    private const val CC_BY_4 = "Creative Commons Attribution 4.0 International"
 
     val components: List<OpenSourceComponent> = listOf(
         OpenSourceComponent(
@@ -65,6 +66,41 @@ object OpenSourceLicenses {
             copyright = "Copyright JetBrains s.r.o. and Kotlin Programming Language contributors",
             url = "https://kotlinlang.org",
             licenseText = R.raw.license_apache_2_0,
+        ),
+        OpenSourceComponent(
+            name = "c2pa-android and the C2PA Rust SDK (Content Credentials; MIT or Apache-2.0, used under Apache-2.0)",
+            license = APACHE_2,
+            copyright = "Copyright Adobe and contributors",
+            url = "https://github.com/contentauth/c2pa-android",
+            licenseText = R.raw.license_apache_2_0,
+        ),
+        OpenSourceComponent(
+            name = "JNA (Java Native Access; LGPL-2.1 or Apache-2.0, used under Apache-2.0)",
+            license = APACHE_2,
+            copyright = "Copyright Timothy Wall and JNA contributors",
+            url = "https://github.com/java-native-access/jna",
+            licenseText = R.raw.license_apache_2_0,
+        ),
+        OpenSourceComponent(
+            name = "OkHttp and Okio",
+            license = APACHE_2,
+            copyright = "Copyright Square, Inc.",
+            url = "https://square.github.io/okhttp/",
+            licenseText = R.raw.license_apache_2_0,
+        ),
+        OpenSourceComponent(
+            name = "AndroidX AppCompat and Biometric, Material Components for Android",
+            license = APACHE_2,
+            copyright = "Copyright The Android Open Source Project, Google LLC",
+            url = "https://github.com/material-components/material-components-android",
+            licenseText = R.raw.license_apache_2_0,
+        ),
+        OpenSourceComponent(
+            name = "C2PA Trust List (bundled certificate list, unmodified)",
+            license = CC_BY_4,
+            copyright = "Coalition for Content Provenance and Authenticity (C2PA)",
+            url = "https://github.com/c2pa-org/conformance-public",
+            licenseText = R.raw.license_cc_by_4_0,
         ),
     )
 }
