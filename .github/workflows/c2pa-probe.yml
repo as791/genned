@@ -125,11 +125,12 @@ jobs:
           for f in ai capture composite tampered base; do
             for s in untrusted trusted; do
               echo "===== FIXTURE $f $s"
-              c2patool --settings $s.json $f.jpg 2>&1 | head -c 20000
+              c2patool --settings $s.json $f.jpg 2>&1 | head -c 20000 || true
               echo
             done
           done
       - name: Public trust lists
+        if: always()
         run: |
           for u in https://raw.githubusercontent.com/c2pa-org/conformance-public/main/trust-list/C2PA-TRUST-LIST.pem \
                    https://contentcredentials.org/trust/anchors.pem \
@@ -146,3 +147,4 @@ jobs:
               head -c 1500 "$f"; echo
             fi
           done
+          echo "== sha256"; sha256sum C2PA-TRUST-LIST.pem anchors.pem allowed.pem store.cfg 2>/dev/null || true
