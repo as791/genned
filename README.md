@@ -13,8 +13,9 @@ it — never a claim of certainty.
 
 Genned isn't on Google Play yet. Install it from
 [GitHub Releases](https://github.com/as791/genned/releases/latest) (Android 8.0+):
-download `genned-<version>.apk` on your phone, open it, and allow installs from that app
-when Android asks. Each release lists the APK's SHA-256 and the signing certificate's
+download `genned-<version>-arm64-v8a.apk` (nearly every recent phone) or
+`genned-<version>.apk` (works on every phone, larger) on your phone, open it, and allow
+installs from that app when Android asks. Each release lists the APKs' SHA-256s and the signing certificate's
 fingerprint. The app has no internet permission, so it can't tell you about updates. Watch
 the repository's releases instead, and install a newer APK over the old one.
 
@@ -161,9 +162,11 @@ git tag v0.2.0 && git push origin v0.2.0
 ```
 
 Either way, the same CI workflow builds, tests and signs the release, then creates a GitHub
-release `v0.2.0` with `genned-0.2.0.apk` and `SHA256SUMS.txt`. The version must look like
-`MAJOR.MINOR.PATCH`; it sets `versionName`. `versionCode` keeps
-counting with the workflow's runs, so each release installs over the previous one. The
+release `v0.2.0` with the universal `genned-0.2.0.apk`, one APK per CPU type
+(`genned-0.2.0-arm64-v8a.apk`, `-armeabi-v7a`, `-x86_64`, `-x86`) and `SHA256SUMS.txt`.
+The version must look like `MAJOR.MINOR.PATCH`; it sets `versionName`. `versionCode` keeps
+counting with the workflow's runs (each APK uses it × 10 plus a per-CPU offset), so any
+release APK installs over any earlier one. The
 step fails if the upload-key secrets are missing, so an unsigned APK is never published.
 The AAB and `mapping.txt` stay in that run's `genned-release` artifact.
 

@@ -1,3 +1,5 @@
+import com.android.build.api.variant.FilterConfiguration
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+// versionCode = base * 10 + ABI offset (universal + 0), so every APK of a build outranks
+// every APK of the previous one and Android installs any of them over any other.
+val ABI_VERSION_OFFSETS = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3, "x86_64" to 4)
 
 android {
     namespace = "com.genned.app"
@@ -15,7 +21,8 @@ android {
         minSdk = 26
         targetSdk = 35
         // CI sets GENNED_VERSION_CODE (1000 + workflow run number) so every CI build can be
-        // uploaded to Play as an update; local builds stay at 1.
+        // uploaded to Play as an update; local builds stay at 1. Each APK's own versionCode is
+        // this x 10 + its ABI offset (androidComponents below).
         versionCode = System.getenv("GENNED_VERSION_CODE")?.toIntOrNull() ?: 1
         // CI sets GENNED_VERSION_NAME from the release tag (v1.2.3 -> 1.2.3).
         versionName = System.getenv("GENNED_VERSION_NAME") ?: "0.1.0"
@@ -77,10 +84,21 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
-        // ONNX Runtime ships native .so libraries per ABI; keep all supported ABIs for
-        // the MVP rather than splitting APKs, to keep the release process simple.
+        // ONNX Runtime ships native .so libraries per ABI. The universal APK keeps all of
+        // them; the per-ABI APKs below carry one each.
         jniLibs {
             useLegacyPackaging = false
+        }
+    }
+
+    // One APK per CPU type next to the universal one: most phones need only arm64-v8a, and
+    // each per-ABI APK skips the other three ABIs' native libraries.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include(*ABI_VERSION_OFFSETS.keys.toTypedArray())
+            isUniversalApk = true
         }
     }
 
@@ -88,6 +106,16 @@ android {
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters.find { it.filterType == FilterConfiguration.FilterType.ABI }?.identifier
+            val base = output.versionCode.orNull ?: 1
+            output.versionCode.set(base * 10 + (ABI_VERSION_OFFSETS[abi] ?: 0))
         }
     }
 }
