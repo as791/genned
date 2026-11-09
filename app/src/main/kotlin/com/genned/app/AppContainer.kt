@@ -41,7 +41,7 @@ class AppContainer(context: Context) {
     private val texts: Texts by lazy { ResourceTexts(appContext.resources) }
     private val evidenceTexts by lazy { ResourceEvidenceTexts(texts) }
 
-    private val c2paProvider by lazy { C2PAProvider(texts) }
+    private val c2paProvider by lazy { C2PAProvider(appContext, texts) }
     private val exifMetadataProvider by lazy { ExifMetadataProvider(texts) }
     private val generatorMetadataProvider by lazy { KnownGeneratorMetadataProvider(texts) }
     private val classifierProvider by lazy { AIImageClassifierProvider(appContext) }
@@ -70,6 +70,7 @@ class AppContainer(context: Context) {
             evidenceEngine = evidenceEngine,
             historyRepository = historyRepository,
             videoProbability = classifierProvider::videoProbability,
+            contentCredentials = c2paProvider::analyzeVideo,
             texts = texts,
         )
     }

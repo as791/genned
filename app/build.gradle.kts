@@ -79,6 +79,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         }
         // ONNX Runtime ships native .so libraries per ABI. The universal APK keeps all of
         // them; the per-ABI APKs below carry one each.
@@ -122,6 +123,14 @@ androidComponents {
             output.versionCode.set(base * 10 + (ABI_VERSION_OFFSETS[abi] ?: 0))
         }
     }
+    // Content Credentials' native library is 24-26 MB per x86 ABI. Phones are ARM; x86 is
+    // emulators and a few Chromebooks, where release builds report the check as unavailable
+    // (C2PAProvider). Debug builds keep it so the emulator test (c2pa-device-test.yml) runs.
+    onVariants(selector().withBuildType("release")) { variant ->
+        for (abi in listOf("x86", "x86_64")) {
+            variant.packaging.jniLibs.excludes.addAll("lib/$abi/libc2pa_c.so", "lib/$abi/libc2pa_jni.so")
+        }
+    }
 }
 
 dependencies {
@@ -150,6 +159,13 @@ dependencies {
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+    // Content Credentials (C2PA) reading and verification, Android 9+ (see C2PAProvider).
+    // BouncyCastle is only used by the library's certificate-request (signing) code, which
+    // Genned never calls; verification happens in the native Rust SDK. Leaving it out saves
+    // several MB (its consumer R8 rules would keep all of it).
+    implementation(libs.c2pa.android) {
+        exclude(group = "org.bouncycastle")
+    }
 
     implementation(libs.exifinterface)
 
@@ -167,6 +183,7 @@ dependencies {
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.truth)
     androidTestImplementation(libs.espresso.core)
 }
 

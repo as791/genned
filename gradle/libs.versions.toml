@@ -18,6 +18,7 @@ androidxTestExt = "1.2.1"
 espresso = "3.6.1"
 robolectric = "4.13"
 truth = "1.4.4"
+c2pa = "0.0.17"
 
 [libraries]
 core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -48,6 +49,7 @@ truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExt" }
 espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+c2pa-android = { group = "com.github.contentauth", name = "c2pa-android", version.ref = "c2pa" }
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 
 [plugins]

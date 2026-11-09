@@ -72,7 +72,7 @@ Implemented in V1:
 - `AIImageClassifierProvider` — ONNX Runtime Mobile inference. See `internal-docs/MODEL.md`.
 
 Implemented as honest stubs (`SignalAvailability.UNAVAILABLE`, not fabricated):
-- `C2PAProvider` — see "C2PA integration path" below.
+- `C2PAProvider` — see "Content Credentials (C2PA)" below.
 - `WatermarkProvider` — no open on-device detector exists for generative
   watermarks (e.g. SynthID); see its class doc.
 
@@ -110,11 +110,11 @@ audio analysis; every video result's limitations say this in plain language
 (only depends on domain models), so the frame-averaging logic is unit-tested
 without needing a real video file or Robolectric.
 
-Metadata and provenance inspection (EXIF, generator signatures, C2PA) are not
-implemented for video in this version — rather than silently omitting those
-signal cards, `AnalyzeVideoUseCase` includes explicit `UNAVAILABLE`
-`DetectionSignal`s for them so the Result screen states the gap honestly instead
-of looking incomplete.
+Content Credentials are checked on the video file itself (see "Content Credentials
+(C2PA)"). EXIF and generator-signature inspection are not implemented for video —
+rather than silently omitting those signal cards, `AnalyzeVideoUseCase` includes
+explicit `UNAVAILABLE` `DetectionSignal`s for them so the Result screen states the
+gap honestly instead of looking incomplete.
 
 ### Share-sheet routing for image vs. video
 
@@ -134,8 +134,8 @@ so `AnalyzingViewModel` can route to `AnalyzeImageUseCase` or
 1. **Verified provenance available** (a `CONTENT_CREDENTIALS` signal is
    `AVAILABLE`): its score *is* the result, not blended with probabilistic
    signals — matching "cryptographically verified provenance should be presented
-   separately from probabilistic ML detection." Unreachable in V1 (C2PAProvider
-   always reports UNAVAILABLE) but implemented and unit-tested now.
+   separately from probabilistic ML detection." Reached only by Content Credentials
+   that verify against the bundled trust lists (see "Content Credentials (C2PA)").
 2. **Probabilistic blend** (the normal V1 path): a confidence-weighted average
    over every `AVAILABLE` signal, using fixed weights in `EvidenceWeights.kt`.
 
@@ -166,29 +166,47 @@ actual bundled classifier, use those precision/recall numbers to inform:
 This is isolated in one object specifically so it can change without touching
 providers, the use case, or the UI.
 
-## C2PA integration path
+## Content Credentials (C2PA)
 
-`contentauth/c2pa-android` (Apache-2.0/MIT, github.com/contentauth/c2pa-android)
-is a real, maintained Kotlin/JNI wrapper over the C2PA Rust SDK that can read and
-cryptographically validate embedded manifests. It was investigated and is not
-wired into V1 because its only documented distribution channel is GitHub
-Packages, which requires an authenticated `GITHUB_TOKEN` to resolve as a Gradle
-dependency — depending on it would break `./gradlew assembleDebug` for anyone
-who clones this repo without personal GitHub credentials.
+`C2PAProvider` reads and verifies a file's embedded Content Credentials with
+`contentauth/c2pa-android` (MIT/Apache-2.0, the C2PA Rust SDK over JNI), fetched from
+JitPack (`com.github.contentauth:c2pa-android`, limited to that group in
+`settings.gradle.kts`) because the project's own Maven channel needs a GitHub token.
 
-To enable it in a future version:
-1. Add the GitHub Packages Maven repo + credentials to `settings.gradle.kts`.
-2. `implementation("org.contentauth:c2pa:<version>")` in `app/build.gradle.kts`.
-3. Replace `C2PAProvider`'s body with manifest reading/validation against
-   `image.originalFilePath` (never `normalizedFilePath` — re-encoding strips any
-   embedded manifest).
-4. Map a validated manifest to a score (e.g. ~0.95 if any assertion declares
-   generative-AI tool use, low if it only declares camera capture); keep returning
-   `UNAVAILABLE` for a present-but-invalid manifest, since a broken signature is
-   not evidence either way.
+- **Android 9+ only.** The library's minSdk is 28; the app keeps 26 through
+  `tools:overrideLibrary` and an SDK check before any call. Release builds leave out its
+  x86/x86_64 native libraries (~25 MB each); there the check reports "not available".
+- **What it reads:** the byte-exact original (`originalFilePath`), or the video file
+  straight from its URI. The file type is sniffed from its first bytes.
+- **Verification is fully local.** `C2paTrustSettings` turns trust checking on, turns
+  remote-manifest fetching off, and supplies trust anchors bundled in
+  `app/src/main/assets/c2pa/`:
+  - `c2pa-trust-list.pem`: the official C2PA Trust List
+    (github.com/c2pa-org/conformance-public, `trust-list/C2PA-TRUST-LIST.pem`, CC-BY-4.0).
+  - `interim-trust-list.pem`: the Content Authenticity Initiative's interim trust list
+    (contentcredentials.org/trust/anchors.pem), which content signed before the C2PA
+    list existed chains to (Truepic, Adobe, Microsoft, camera makers).
+  - `trust-config.cfg`: the accepted certificate purposes (contentcredentials.org/trust/store.cfg).
 
-No other file needs to change — `EvidenceEngine`'s verified-provenance branch and
-its tests already exist for this.
+  These are byte-identical copies (SHA-256 in `assets/c2pa/SHA256SUMS`). Refresh them
+  before a release by downloading the same URLs.
+- **Mapping** (`C2paManifestInterpreter`, pure Kotlin, tested against real c2patool
+  reports in `app/src/test/resources/c2pa/`):
+
+  | Manifest | Signal |
+  |---|---|
+  | Trusted signer, generative AI declared anywhere (IPTC `trainedAlgorithmicMedia`, `compositeWithTrainedAlgorithmicMedia`) | AVAILABLE, 0.98 |
+  | Trusted signer, camera capture declared, no AI anywhere | AVAILABLE, 0.05 |
+  | Trusted signer, neither declared | UNAVAILABLE |
+  | Signer not on the trust lists | UNAVAILABLE (an AI claim is mentioned, never counted) |
+  | Fails verification (changed after signing, bad signature or certificate) | UNAVAILABLE |
+  | None, online-only, unsupported type, old Android, timeout (15 s) | UNAVAILABLE |
+
+  An AVAILABLE signal is authoritative in `EvidenceEngine` (verified-provenance branch),
+  so only a manifest that verifies against the bundled trust lists can produce it.
+- **On-device test:** `.github/workflows/c2pa-device-test.yml` signs fixtures with a
+  throwaway test CA and runs `C2paDeviceTest` on an emulator, so the native reader, the
+  stream adapter and the error mapping are checked against the real library.
 
 ## Screen overlay (experimental)
 

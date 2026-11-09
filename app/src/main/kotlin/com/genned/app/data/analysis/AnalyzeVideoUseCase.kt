@@ -24,10 +24,10 @@ import kotlinx.coroutines.coroutineScope
  *
  * This is deliberately labeled and limited to what it actually is: frame-sampled
  * still-image classification, not video, audio, or motion/temporal analysis — no
- * video-specific model exists here or is implied. Metadata/provenance inspection
- * (EXIF, generator signatures, Content Credentials) is not implemented for video
- * in this version; that is stated explicitly in the result's signals and
- * limitations rather than silently skipped.
+ * video-specific model exists here or is implied. Content Credentials are read from
+ * the video file itself ([contentCredentials]); EXIF and generator-signature
+ * inspection are not implemented for video, which the result's signals state
+ * rather than silently skipping.
  */
 class AnalyzeVideoUseCase(
     private val frameSampler: VideoFrameSampler,
@@ -37,6 +37,8 @@ class AnalyzeVideoUseCase(
     private val historyRepository: HistoryRepository,
     /** Video calibration of the classifier that scores the frames (see VideoSignalAggregator). */
     private val videoProbability: (Double) -> Float,
+    /** Content Credentials check of the video file (C2PAProvider.analyzeVideo). */
+    private val contentCredentials: suspend (Uri) -> DetectionSignal,
     private val texts: Texts,
 ) {
     suspend fun run(
@@ -51,8 +53,13 @@ class AnalyzeVideoUseCase(
             onPreview(middleFrame.file.absolutePath)
 
             onStage(AnalysisStage.VISUAL)
-            val perFrameSignals = coroutineScope {
-                frames.map { frame -> async { analyzeFrame(frame) } }.awaitAll()
+            val (perFrameSignals, credentialsSignal) = coroutineScope {
+                val credentials = async {
+                    runCatching { contentCredentials(videoUri) }.getOrElse {
+                        DetectionSignal.error(SignalType.CONTENT_CREDENTIALS, texts.get(R.string.signal_failed_unexpectedly))
+                    }
+                }
+                frames.map { frame -> async { analyzeFrame(frame) } }.awaitAll() to credentials.await()
             }
             val classifierSignal = VideoSignalAggregator.aggregateFrameSignals(perFrameSignals, texts, videoProbability)
             val watermarkSignal = runCatching { watermarkProvider.analyze(frameInput(middleFrame)) }
@@ -63,7 +70,7 @@ class AnalyzeVideoUseCase(
                 watermarkSignal,
                 DetectionSignal.unavailable(SignalType.GENERATOR_METADATA, texts.get(R.string.video_metadata_not_implemented)),
                 DetectionSignal.unavailable(SignalType.EXIF_METADATA, texts.get(R.string.video_metadata_not_implemented)),
-                DetectionSignal.unavailable(SignalType.CONTENT_CREDENTIALS, texts.get(R.string.credentials_unavailable)),
+                credentialsSignal,
             )
 
             val baseResult = evidenceEngine.aggregate(signals)

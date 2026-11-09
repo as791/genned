@@ -1,0 +1,109 @@
+name: Content Credentials device test
+
+# Runs C2paDeviceTest on an Android emulator against the real c2pa-android library: the
+# native reader, the stream adapter, the error mapping and the bundled trust lists. The
+# fixtures are made here with c2patool (same C2PA Rust SDK) and a throwaway test CA, so no
+# real signing key or third-party content is involved.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/src/main/kotlin/com/genned/app/data/detection/provenance/**'
+      - 'app/src/androidTest/**'
+      - 'app/src/main/assets/c2pa/**'
+      - 'gradle/libs.versions.toml'
+      - 'app/build.gradle.kts'
+      - '.github/workflows/c2pa-device-test.yml'
+
+jobs:
+  device-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/c2patool
+          key: c2patool-0.28.6-${{ runner.os }}
+      - name: c2patool
+        run: |
+          command -v c2patool || cargo install c2patool --version 0.28.6 --locked 2>&1 | tail -3
+          c2patool --version
+
+      - name: Fixtures
+        run: |
+          set -euo pipefail
+          out=app/src/androidTest/assets/c2pa-fixtures
+          mkdir -p "$out" work && cd work
+          git clone --depth 1 https://github.com/contentauth/c2pa-rs src
+          img=$(find src -name earth_apollo17.jpg | head -1); [ -n "$img" ] || img=$(find src -name '*.jpg' -size +20k | head -1)
+          vid=$(find src -name 'video1.mp4' | head -1); [ -n "$vid" ] || vid=$(find src -name '*.mp4' | head -1)
+          png=$(find src -name '*.png' -size +2k | head -1)
+          echo "image: $img  png: $png  video: $vid"
+          cp "$img" base.jpg; cp "$vid" base.mp4; cp "$png" base.png
+          openssl ecparam -name prime256v1 -genkey -noout -out root.key
+          openssl req -x509 -new -key root.key -sha256 -days 30 -subj "/CN=Genned Test Root/O=Genned Test" \
+            -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -out anchor.pem
+          openssl ecparam -name prime256v1 -genkey -noout -out signer.key
+          openssl req -new -key signer.key -subj "/CN=Genned Test Signer/O=Genned Test" -out signer.csr
+          printf "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=emailProtection\n" > signer.ext
+          openssl x509 -req -in signer.csr -CA anchor.pem -CAkey root.key -CAcreateserial -days 30 -sha256 \
+            -extfile signer.ext -out signer.pem
+          python3 - <<'PY'
+          import json
+          def manifest(source):
+              return {"alg": "es256", "private_key": "signer.key", "sign_cert": "signer.pem",
+                      "claim_generator_info": [{"name": "genned-fixture", "version": "1.0"}],
+                      "assertions": [{"label": "c2pa.actions", "data": {"actions": [
+                          {"action": "c2pa.created", "softwareAgent": {"name": "TestGen"},
+                           "digitalSourceType": "http://cv.iptc.org/newscodes/digitalsourcetype/" + source}]}}]}
+          json.dump(manifest("trainedAlgorithmicMedia"), open("m_ai.json", "w"))
+          json.dump(manifest("digitalCapture"), open("m_capture.json", "w"))
+          PY
+          c2patool base.jpg -m m_ai.json -o ai.jpg -f > /dev/null
+          c2patool base.jpg -m m_capture.json -o capture.jpg -f > /dev/null
+          c2patool base.png -m m_ai.json -o ai.png -f > /dev/null
+          c2patool base.mp4 -m m_ai.json -o ai.mp4 -f > /dev/null
+          python3 -c "d=bytearray(open('ai.jpg','rb').read()); n=len(d)-2000; d[n:n+50]=bytes(50); open('tampered.jpg','wb').write(d)"
+          cp anchor.pem base.jpg ai.jpg capture.jpg ai.png ai.mp4 tampered.jpg "../$out/"
+          ls -l "../$out"
+
+      - name: Set up Android SDK
+        run: |
+          : "${ANDROID_SDK_ROOT:=${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "$ANDROID_SDK_ROOT" -maxdepth 4 -path '*/cmdline-tools/*/bin/sdkmanager' 2>/dev/null | sort -V | tail -1)"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run C2paDeviceTest on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 33
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: >-
+            ./gradlew connectedDebugAndroidTest --stacktrace
+            -Pandroid.testInstrumentationRunnerArguments.class=com.genned.app.data.detection.provenance.C2paDeviceTest
+
+      - name: Test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c2pa-device-test-report
+          path: app/build/reports/androidTests/

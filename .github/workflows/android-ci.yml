@@ -96,6 +96,17 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      # The app works offline by design (internal-docs/PRIVACY.md). Libraries can add
+      # permissions through manifest merging; fail if any network or biometric one appears.
+      - name: No network permissions in the APK
+        run: |
+          perms="$("$ANDROID_HOME/build-tools/35.0.0/aapt2" dump permissions app/build/outputs/apk/debug/app-universal-debug.apk)"
+          echo "$perms"
+          if echo "$perms" | grep -E 'android.permission.(INTERNET|ACCESS_NETWORK_STATE|ACCESS_WIFI_STATE|USE_BIOMETRIC|USE_FINGERPRINT)'; then
+            echo "::error::Unexpected permission in the merged manifest"
+            exit 1
+          fi
+
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -145,6 +156,7 @@ jobs:
         run: |
           ./gradlew lintRelease assembleRelease --stacktrace
           ./gradlew bundleRelease --stacktrace
+          echo "Release sizes:"; ls -l app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab | awk '{printf "  %7.1f MB  %s\n", $5/1e6, $9}'
 
       - name: Remove upload key
         if: always()

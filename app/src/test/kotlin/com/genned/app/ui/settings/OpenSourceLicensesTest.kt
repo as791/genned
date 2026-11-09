@@ -16,7 +16,11 @@ class OpenSourceLicensesTest {
     fun `every component has its full license text bundled`() {
         for (component in OpenSourceLicenses.components) {
             val text = context.resources.openRawResource(component.licenseText).bufferedReader().use { it.readText() }
-            val expected = if (component.license.startsWith("MIT")) "Permission is hereby granted" else "Apache License"
+            val expected = when {
+                component.license.startsWith("MIT") -> "Permission is hereby granted"
+                component.license.startsWith("Creative Commons Attribution 4.0") -> "Attribution 4.0 International"
+                else -> "Apache License"
+            }
             assertThat(text).contains(expected)
         }
     }
