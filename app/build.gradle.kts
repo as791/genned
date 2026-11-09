@@ -14,7 +14,7 @@ val ABI_VERSION_OFFSETS = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3
 
 android {
     namespace = "com.genned.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.genned.app"
@@ -71,10 +71,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -92,10 +88,12 @@ android {
     }
 
     // One APK per CPU type next to the universal one: most phones need only arm64-v8a, and
-    // each per-ABI APK skips the other three ABIs' native libraries.
+    // each per-ABI APK skips the other three ABIs' native libraries. Off when building an App
+    // Bundle (AGP can't bundle with ABI splits on; Play splits bundles by itself), so CI
+    // builds the bundle in its own Gradle invocation.
     splits {
         abi {
-            isEnable = true
+            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
             reset()
             include(*ABI_VERSION_OFFSETS.keys.toTypedArray())
             isUniversalApk = true
@@ -107,6 +105,12 @@ android {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 

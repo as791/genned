@@ -82,7 +82,7 @@ jobs:
 
           echo "Using sdkmanager at $SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;35.0.0"
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -141,7 +141,10 @@ jobs:
           GENNED_UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
           GENNED_UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
           GENNED_UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
-        run: ./gradlew lintRelease assembleRelease bundleRelease --stacktrace
+        # Two invocations: per-CPU APK splits are off whenever a bundle task is requested.
+        run: |
+          ./gradlew lintRelease assembleRelease --stacktrace
+          ./gradlew bundleRelease --stacktrace
 
       - name: Remove upload key
         if: always()

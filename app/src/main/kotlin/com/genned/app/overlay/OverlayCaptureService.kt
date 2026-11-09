@@ -125,7 +125,10 @@ class OverlayCaptureService : Service() {
             buildNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
         )
-        startProjection(resultCode, data)
+        if (!startProjection(resultCode, data)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         addBubble()
         watchForegroundApp()
         _running.value = true
@@ -186,7 +189,8 @@ class OverlayCaptureService : Service() {
     // like turning that virtual screen off, so nothing is mirrored (no GPU/battery
     // cost) while the bubble is hidden. It's released only when the overlay stops.
 
-    private fun startProjection(resultCode: Int, data: Intent) {
+    /** Starts screen capture; false if the system refused the grant (nothing to clean up). */
+    private fun startProjection(resultCode: Int, data: Intent): Boolean {
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION")
         windowManager.defaultDisplay.getRealMetrics(metrics)
@@ -208,6 +212,10 @@ class OverlayCaptureService : Service() {
 
         val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         val projection = projectionManager.getMediaProjection(resultCode, data)
+        if (projection == null) {
+            Log.w(TAG, "getMediaProjection returned null: the capture grant was not accepted")
+            return false
+        }
         mediaProjection = projection
 
         // Required since Android 14 (API 34): createVirtualDisplay() throws
@@ -240,6 +248,7 @@ class OverlayCaptureService : Service() {
         }
         projectionCallback = callback
         projection.registerCallback(callback, Handler(Looper.getMainLooper()))
+        return true
     }
 
     private fun stopProjection() {
