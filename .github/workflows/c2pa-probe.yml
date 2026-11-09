@@ -87,15 +87,19 @@ jobs:
         run: |
           set -euo pipefail
           git clone --depth 1 https://github.com/contentauth/c2pa-rs src
-          certs=$(find src -name es256_certs.pem | head -1); key=$(find src -name es256_private.key | head -1)
-          echo "certs: $certs  key: $key"
-          cp "$certs" es256_certs.pem; cp "$key" es256_private.key
           img=$(find src -name earth_apollo17.jpg | head -1); [ -n "$img" ] || img=$(find src -name '*.jpg' -size +20k | head -1)
           echo "base image: $img"; cp "$img" base.jpg
-          # The last certificate in the chain is the root: use it as the trust anchor.
-          awk '/BEGIN CERT/{n++} {print > ("cert" n ".pem")}' es256_certs.pem
-          ls cert*.pem; root=$(ls cert*.pem | sort -V | tail -1); cp "$root" anchor.pem
-          openssl x509 -in anchor.pem -noout -subject -issuer
+          # A throwaway test CA (the trust anchor) and a C2PA signing certificate it issues.
+          openssl ecparam -name prime256v1 -genkey -noout -out root.key
+          openssl req -x509 -new -key root.key -sha256 -days 3650 -subj "/CN=Genned Test Root/O=Genned Test" \
+            -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" -out anchor.pem
+          openssl ecparam -name prime256v1 -genkey -noout -out es256_private.key
+          openssl req -new -key es256_private.key -subj "/CN=Genned Test Signer/O=Genned Test" -out leaf.csr
+          printf "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=emailProtection\n" > leaf.ext
+          openssl x509 -req -in leaf.csr -CA anchor.pem -CAkey root.key -CAcreateserial -days 3650 -sha256 \
+            -extfile leaf.ext -out leaf.pem
+          cat leaf.pem > es256_certs.pem
+          openssl x509 -in leaf.pem -noout -subject -issuer
           python3 - <<'PY'
           import json
           anchor = open("anchor.pem").read()
