@@ -1,0 +1,75 @@
+name: C2PA probe
+
+# One-off look at the contentauth/c2pa-android library before integrating it: how it can
+# be fetched without credentials (JitPack / release AAR), its manifest (package, minSdk),
+# native library sizes per ABI, and its public API. Prints facts only; builds nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag of contentauth/c2pa-android (blank = latest)
+        default: ''
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          url=https://api.github.com/repos/contentauth/c2pa-android/releases/latest
+          [ -n "$TAG" ] && url=https://api.github.com/repos/contentauth/c2pa-android/releases/tags/$TAG
+          curl -sSf -H "Authorization: Bearer $GH_TOKEN" "$url" > release.json
+          python3 - <<'EOF'
+          import json
+          r = json.load(open("release.json"))
+          print("tag:", r["tag_name"], "published:", r["published_at"])
+          for a in r["assets"]:
+              print(f"  {a['name']}  {a['size'] / 1e6:.1f} MB  {a['browser_download_url']}")
+          open("tag.txt", "w").write(r["tag_name"])
+          aar = [a["browser_download_url"] for a in r["assets"] if a["name"].endswith(".aar")]
+          open("aar_url.txt", "w").write(aar[0] if aar else "")
+          EOF
+
+      - name: JitPack
+        run: |
+          tag="$(cat tag.txt)"
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o jitpack.pom -w '%{http_code}' --max-time 300 \
+              "https://jitpack.io/com/github/contentauth/c2pa-android/$tag/c2pa-android-$tag.pom" || true)
+            echo "attempt $i: HTTP $code"
+            [ "$code" = 200 ] && break
+            sleep 60
+          done
+          [ -f jitpack.pom ] && head -c 3000 jitpack.pom; echo
+          curl -s --max-time 120 "https://jitpack.io/com/github/contentauth/c2pa-android/$tag/build.log" | tail -40 || true
+
+      - name: Inspect the AAR
+        run: |
+          set -euo pipefail
+          url="$(cat aar_url.txt)"
+          if [ -z "$url" ]; then echo "::error::no .aar asset on the release"; exit 1; fi
+          curl -sSfL -o c2pa.aar "$url"
+          ls -l c2pa.aar
+          mkdir aar && cd aar && unzip -q ../c2pa.aar
+          echo "== AndroidManifest.xml"; cat AndroidManifest.xml
+          echo "== native libraries"; find jni -name '*.so' -exec ls -l {} \; | awk '{printf "%10.1f MB  %s\n", $5/1e6, $9}'
+          echo "== compressed size per ABI (zip -9, roughly what the APK adds)"
+          for d in jni/*/; do (cd "$d" && zip -q -9 -r /tmp/abi.zip . && ls -l /tmp/abi.zip | awk -v d="$d" '{printf "%10.1f MB  %s\n", $5/1e6, d}' && rm /tmp/abi.zip); done
+          echo "== other entries"; find . -maxdepth 1 -type f | sort
+          [ -f proguard.txt ] && { echo "== proguard.txt"; cat proguard.txt; }
+          echo "== public API"
+          mkdir classes && (cd classes && unzip -q ../classes.jar)
+          find classes -name '*.class' ! -name '*$*' | sed 's|^classes/||; s|\.class$||; s|/|.|g' | sort > classlist.txt
+          wc -l classlist.txt
+          javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -v '^Compiled from' | head -400
+          echo "== strings mentioning trust / settings / validation"
+          javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -iE 'trust|setting|valid|verify|status' | sort -u | head -80
