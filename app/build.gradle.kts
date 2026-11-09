@@ -88,10 +88,12 @@ android {
     }
 
     // One APK per CPU type next to the universal one: most phones need only arm64-v8a, and
-    // each per-ABI APK skips the other three ABIs' native libraries.
+    // each per-ABI APK skips the other three ABIs' native libraries. Off when building an App
+    // Bundle (AGP can't bundle with ABI splits on; Play splits bundles by itself), so CI
+    // builds the bundle in its own Gradle invocation.
     splits {
         abi {
-            isEnable = true
+            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
             reset()
             include(*ABI_VERSION_OFFSETS.keys.toTypedArray())
             isUniversalApk = true

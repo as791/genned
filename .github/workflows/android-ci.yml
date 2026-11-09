@@ -141,7 +141,10 @@ jobs:
           GENNED_UPLOAD_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
           GENNED_UPLOAD_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
           GENNED_UPLOAD_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
-        run: ./gradlew lintRelease assembleRelease bundleRelease --stacktrace
+        # Two invocations: per-CPU APK splits are off whenever a bundle task is requested.
+        run: |
+          ./gradlew lintRelease assembleRelease --stacktrace
+          ./gradlew bundleRelease --stacktrace
 
       - name: Remove upload key
         if: always()
