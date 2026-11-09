@@ -70,7 +70,7 @@ jobs:
           mkdir classes && (cd classes && unzip -q ../classes.jar)
           find classes -name '*.class' ! -name '*$*' | sed 's|^classes/||; s|\.class$||; s|/|.|g' | sort > classlist.txt
           wc -l classlist.txt
-          javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -v '^Compiled from' | head -400
+          javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -v '^Compiled from' | head -400 || true
           echo "== strings mentioning trust / settings / validation"
           javap -public -cp classes.jar $(cat classlist.txt) 2>/dev/null | grep -iE 'trust|setting|valid|verify|status' | sort -u | head -80 || true
 
@@ -87,9 +87,10 @@ jobs:
         run: |
           set -euo pipefail
           git clone --depth 1 https://github.com/contentauth/c2pa-rs src
-          ls src/cli/sample | head -40
-          cp src/cli/sample/es256_certs.pem src/cli/sample/es256_private.key .
-          img=$(ls src/sdk/tests/fixtures/earth_apollo17.jpg 2>/dev/null || find src -name '*.jpg' -size +20k | head -1)
+          certs=$(find src -name es256_certs.pem | head -1); key=$(find src -name es256_private.key | head -1)
+          echo "certs: $certs  key: $key"
+          cp "$certs" es256_certs.pem; cp "$key" es256_private.key
+          img=$(find src -name earth_apollo17.jpg | head -1); [ -n "$img" ] || img=$(find src -name '*.jpg' -size +20k | head -1)
           echo "base image: $img"; cp "$img" base.jpg
           # The last certificate in the chain is the root: use it as the trust anchor.
           awk '/BEGIN CERT/{n++} {print > ("cert" n ".pem")}' es256_certs.pem
