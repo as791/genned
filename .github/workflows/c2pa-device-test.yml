@@ -7,7 +7,7 @@ name: Content Credentials device test
 on:
   workflow_dispatch:
   push:
-    branches: [main, c2pa-verification]
+    branches: [main]
     paths:
       - 'app/src/main/kotlin/com/genned/app/data/detection/provenance/**'
       - 'app/src/androidTest/**'

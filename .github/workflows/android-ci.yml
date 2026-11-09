@@ -156,6 +156,7 @@ jobs:
         run: |
           ./gradlew lintRelease assembleRelease --stacktrace
           ./gradlew bundleRelease --stacktrace
+          echo "Release sizes:"; ls -l app/build/outputs/apk/release/*.apk app/build/outputs/bundle/release/*.aab | awk '{printf "  %7.1f MB  %s\n", $5/1e6, $9}'
 
       - name: Remove upload key
         if: always()
