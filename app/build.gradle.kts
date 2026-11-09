@@ -14,7 +14,7 @@ val ABI_VERSION_OFFSETS = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86" to 3
 
 android {
     namespace = "com.genned.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.genned.app"
@@ -71,10 +71,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -107,6 +103,12 @@ android {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
