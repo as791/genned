@@ -105,6 +105,8 @@ android {
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
+            // ScreenshotTest writes its pictures instead of comparing them with stored ones.
+            all { it.systemProperty("roborazzi.test.record", "true") }
         }
     }
 }
@@ -181,6 +183,12 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.room.testing)
+    // Screen pictures rendered in unit tests (ScreenshotTest), uploaded by CI as "screens".
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
 
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.androidx.test.ext.junit)
