@@ -274,12 +274,21 @@ different privacy posture than "capture what's on screen right now, once, becaus
 I tapped a button." Tap-to-capture keeps the same consent-per-action model as
 the rest of the app (you always initiate an analysis).
 
-### The capture surface is created once per grant, then paused/resumed
+### The capture surface is created once per grant, attached only during a tap
 
-The `VirtualDisplay`/`ImageReader` is created on the first visit to
-Instagram/WhatsApp and then kept for the whole overlay session. Leaving
-those apps pauses it (`VirtualDisplay.setSurface(null)`); coming back resumes
-it (`setSurface(reader.surface)`). It is released only when the overlay stops.
+The `VirtualDisplay`/`ImageReader` is created once, right after the capture grant,
+**with no surface attached**, and kept for the whole overlay session. A tap attaches
+the reader (`setSurface(reader.surface)`), hides the bubble (which also makes Android
+compose a fresh frame), reads one frame, and detaches it again (`setSurface(null)`)
+in a `finally` (`CaptureSurfaceGate`, unit-tested). It is released only when the
+overlay stops.
+
+Why only during a tap: while a surface is attached, Android copies every frame of the
+full-resolution screen into it, so an earlier version that attached it for the whole
+Instagram/WhatsApp visit spent battery on every scrolled frame even if you never
+tapped. Now scrolling costs no capture work at all. `ForegroundAppWatcher` also stops
+polling while the screen is off (screen on/off broadcasts) and catches up on the next
+poll.
 
 Why not create one per tap or per visit: Android 14+ allows only **one**
 `createVirtualDisplay()` call per `MediaProjection` grant. A second call
@@ -289,7 +298,7 @@ re-entering Instagram (when they were per-visit), both confirmed from debug
 logs on a real device. A `Service` can't silently re-request consent (that
 needs an `Activity` to show the system dialog), so the one display has to be
 reused. Detaching its surface is like turning that virtual screen off, so
-nothing is mirrored — no GPU/battery cost — while the bubble is hidden.
+nothing is mirrored — no GPU/battery cost — between taps.
 
 ### System-revoked capture stops the whole overlay, not just that tap
 
@@ -308,7 +317,8 @@ turn it back on" message. Re-enabling from Settings gets a fresh consent grant.
 ### What this does not do
 
 - Does not read Instagram/WhatsApp's UI, database, or network traffic — only a
-  screen-pixel capture, on tap, of whatever is currently rendered.
+  screen-pixel capture, on tap, of whatever is currently rendered. The screen is
+  not mirrored at all while you scroll; only for the moment of a tap.
 - Does not run unless explicitly turned on in Settings, and stops the moment the
   toggle is turned off or the persistent notification's "Stop" action is tapped —
   a foreground-service notification is mandatory and always visible while active

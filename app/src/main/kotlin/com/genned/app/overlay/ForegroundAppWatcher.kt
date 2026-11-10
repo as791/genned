@@ -6,6 +6,8 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 
 /**
@@ -16,34 +18,16 @@ import kotlinx.coroutines.flow.flow
  * being able to) read another app's actual on-screen content; usage stats only
  * ever reveal a package name. See internal-docs/ARCHITECTURE.md "Screen overlay
  * (experimental)".
+ *
+ * Polling stops while the screen is off ([screenOn] false) and resumes as soon as it comes
+ * back on, so the overlay costs nothing in your pocket.
  */
 class ForegroundAppWatcher(private val context: Context) {
 
-    fun watch(pollIntervalMs: Long = 1_500L): Flow<String?> = flow {
+    fun watch(screenOn: StateFlow<Boolean>, pollIntervalMs: Long = POLL_INTERVAL_MS): Flow<String?> {
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        var current: String? = null
-        var lastEmitted: String? = null
-        // Bootstrap only: establish whatever's already in front before the first
-        // poll. Every poll after this only looks at the slice of events since the
-        // previous poll (see the loop below) - it never re-derives "current" from
-        // a rolling fixed-size window again, which was the bug (see applyEvents kdoc).
-        var queriedThrough = System.currentTimeMillis() - LOOKBACK_MS
-        while (true) {
-            val now = System.currentTimeMillis()
-            current = applyEvents(readEvents(usageStatsManager, queriedThrough, now), start = current)
-            queriedThrough = now
-
-            if (current != lastEmitted) {
-                // Left in deliberately (not gated behind a debug flag): this is the
-                // one signal that can actually diagnose "bubble doesn't show over
-                // app X" reports without device access - see
-                // internal-docs/ARCHITECTURE.md "Screen overlay (experimental)". Only ever a
-                // package name, never on-screen content (see internal-docs/PRIVACY.md).
-                Log.d(TAG, "Foreground package changed: $lastEmitted -> $current")
-                lastEmitted = current
-                emit(current)
-            }
-            delay(pollIntervalMs)
+        return watch(screenOn, pollIntervalMs, System::currentTimeMillis) { start, end ->
+            readEvents(usageStatsManager, start, end)
         }
     }
 
@@ -60,8 +44,49 @@ class ForegroundAppWatcher(private val context: Context) {
 
     companion object {
         val TARGET_PACKAGES = setOf("com.instagram.android", "com.whatsapp", "com.whatsapp.w4b")
+        const val POLL_INTERVAL_MS = 1_500L
         private const val LOOKBACK_MS = 10_000L
         private const val TAG = "ForegroundAppWatcher"
+
+        /** The polling loop, with the clock and the usage-events query passed in so it can be tested. */
+        internal fun watch(
+            screenOn: StateFlow<Boolean>,
+            pollIntervalMs: Long,
+            now: () -> Long,
+            readEvents: (start: Long, end: Long) -> List<Pair<Int, String>>,
+        ): Flow<String?> = flow {
+            var current: String? = null
+            var lastEmitted: String? = null
+            // Bootstrap only: establish whatever's already in front before the first
+            // poll. Every poll after this only looks at the slice of events since the
+            // previous poll (see the loop below) - it never re-derives "current" from
+            // a rolling fixed-size window again, which was the bug (see applyEvents kdoc).
+            var queriedThrough = now() - LOOKBACK_MS
+            while (true) {
+                // Screen off: wait without polling. Events from the dark period are caught up
+                // in the next query, so nothing is missed.
+                if (!screenOn.value) {
+                    Log.d(TAG, "Screen off: foreground polling paused")
+                    screenOn.first { it }
+                    Log.d(TAG, "Screen on: foreground polling resumed")
+                }
+                val queriedTo = now()
+                current = applyEvents(readEvents(queriedThrough, queriedTo), start = current)
+                queriedThrough = queriedTo
+
+                if (current != lastEmitted) {
+                    // Left in deliberately (not gated behind a debug flag): this is the
+                    // one signal that can actually diagnose "bubble doesn't show over
+                    // app X" reports without device access - see
+                    // internal-docs/ARCHITECTURE.md "Screen overlay (experimental)". Only ever a
+                    // package name, never on-screen content (see internal-docs/PRIVACY.md).
+                    Log.d(TAG, "Foreground package changed: $lastEmitted -> $current")
+                    lastEmitted = current
+                    emit(current)
+                }
+                delay(pollIntervalMs)
+            }
+        }
 
         /**
          * Folds a batch of usage events onto a starting package, carrying it forward

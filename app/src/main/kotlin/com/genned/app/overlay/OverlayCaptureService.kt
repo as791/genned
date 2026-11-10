@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -21,6 +23,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
@@ -31,6 +34,7 @@ import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import com.genned.app.GennedApplication
 import com.genned.app.MainActivity
@@ -85,6 +89,22 @@ class OverlayCaptureService : Service() {
     private var captureReader: ImageReader? = null
     private var captureDisplay: VirtualDisplay? = null
 
+    /** Connects the mirror only during a tap; see CaptureSurfaceGate and ARCHITECTURE.md. */
+    private val captureGate = CaptureSurfaceGate(
+        attach = {
+            Log.d(TAG, "capture surface attach at ${System.currentTimeMillis()}")
+            captureDisplay?.setSurface(captureReader?.surface)
+        },
+        detach = {
+            Log.d(TAG, "capture surface detach at ${System.currentTimeMillis()}")
+            captureDisplay?.setSurface(null)
+        },
+    )
+
+    /** Screen on/off, so foreground-app polling stops while the phone is in your pocket. */
+    private val screenOn = MutableStateFlow(true)
+    private var screenReceiver: BroadcastReceiver? = null
+
     private var screenWidth = 0
     private var screenHeight = 0
     private var screenDensity = 0
@@ -130,6 +150,7 @@ class OverlayCaptureService : Service() {
             return START_NOT_STICKY
         }
         addBubble()
+        watchScreenState()
         watchForegroundApp()
         _running.value = true
 
@@ -147,6 +168,8 @@ class OverlayCaptureService : Service() {
     private fun tearDownSession() {
         watchJob?.cancel()
         watchJob = null
+        screenReceiver?.let { runCatching { unregisterReceiver(it) } }
+        screenReceiver = null
         analysisJob?.cancel()
         analysisJob = null
         removeBubble()
@@ -159,20 +182,29 @@ class OverlayCaptureService : Service() {
 
     private fun watchForegroundApp() {
         watchJob = serviceScope.launch {
-            ForegroundAppWatcher(this@OverlayCaptureService).watch().collect { packageName ->
+            ForegroundAppWatcher(this@OverlayCaptureService).watch(screenOn).collect { packageName ->
                 val shouldShow = packageName != null && packageName in ForegroundAppWatcher.TARGET_PACKAGES
                 Log.d(TAG, "foregroundPackage=$packageName shouldShowBubble=$shouldShow")
+                // Only the bubble: the screen mirror stays disconnected until a tap
+                // (CaptureSurfaceGate), so scrolling these apps costs no capture work.
                 bubbleView?.visibility = if (shouldShow) android.view.View.VISIBLE else android.view.View.GONE
-
-                // Created once, then paused/resumed with bubble visibility - see the
-                // comment above startProjection for why it must never be re-created.
-                if (shouldShow) {
-                    openCaptureSurface()
-                } else {
-                    pauseCaptureSurface()
-                }
             }
         }
+    }
+
+    private fun watchScreenState() {
+        screenOn.value = (getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                screenOn.value = intent.action == Intent.ACTION_SCREEN_ON
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        screenReceiver = receiver
     }
 
     // --- MediaProjection setup ---
@@ -184,10 +216,11 @@ class OverlayCaptureService : Service() {
     // on-device as the overlay dying on the 2nd tap (when displays were per-tap)
     // and then on re-entering Instagram (when they were per-visit). A Service can't
     // silently re-request consent (that needs an Activity to show the system
-    // dialog), so the display is created once, on the first visit, and afterwards
-    // only paused/resumed via VirtualDisplay.setSurface: detaching the surface is
-    // like turning that virtual screen off, so nothing is mirrored (no GPU/battery
-    // cost) while the bubble is hidden. It's released only when the overlay stops.
+    // dialog), so the display is created once, right after the grant, with no
+    // surface attached. A tap attaches the ImageReader for the moment of the capture
+    // and detaches it again (CaptureSurfaceGate): with no surface, nothing is
+    // mirrored, so there is no copying cost while you scroll, with or without the
+    // bubble showing. It's released only when the overlay stops.
 
     /** Starts screen capture; false if the system refused the grant (nothing to clean up). */
     private fun startProjection(resultCode: Int, data: Intent): Boolean {
@@ -248,6 +281,7 @@ class OverlayCaptureService : Service() {
         }
         projectionCallback = callback
         projection.registerCallback(callback, Handler(Looper.getMainLooper()))
+        createCaptureDisplay(projection)
         return true
     }
 
@@ -258,16 +292,9 @@ class OverlayCaptureService : Service() {
         mediaProjection = null
     }
 
-    private fun openCaptureSurface() {
-        val existing = captureDisplay
-        val existingReader = captureReader
-        if (existing != null && existingReader != null) {
-            Log.d(TAG, "resumeCaptureSurface at ${System.currentTimeMillis()}")
-            existing.setSurface(existingReader.surface)
-            return
-        }
-        val projection = mediaProjection ?: return
-        Log.d(TAG, "openCaptureSurface at ${System.currentTimeMillis()}")
+    /** The one display per grant, created with no surface: nothing is mirrored until a tap attaches the reader. */
+    private fun createCaptureDisplay(projection: MediaProjection) {
+        Log.d(TAG, "createCaptureDisplay (detached) at ${System.currentTimeMillis()}")
         val reader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 2)
         val display = projection.createVirtualDisplay(
             "GennedOverlayCapture",
@@ -275,18 +302,12 @@ class OverlayCaptureService : Service() {
             screenHeight,
             screenDensity,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            reader.surface,
+            null,
             null,
             null,
         )
         captureReader = reader
         captureDisplay = display
-    }
-
-    private fun pauseCaptureSurface() {
-        val display = captureDisplay ?: return
-        Log.d(TAG, "pauseCaptureSurface at ${System.currentTimeMillis()}")
-        display.setSurface(null)
     }
 
     private fun closeCaptureSurface() {
@@ -382,16 +403,20 @@ class OverlayCaptureService : Service() {
         val reader = captureReader ?: return
 
         analysisJob = serviceScope.launch {
-            // Hide the bubble so it isn't part of the frame being classified.
-            bubble.visibility = View.INVISIBLE
-            val capturedFile = try {
-                // Drop any frame queued while the bubble was still drawn.
-                runCatching { reader.acquireLatestImage()?.close() }
-                delay(CAPTURE_SETTLE_MS)
-                runCatching { captureFrame(reader) }.getOrNull()
-            } finally {
-                // watchForegroundApp may have set GONE meanwhile; don't override that.
-                if (bubble.visibility == View.INVISIBLE) bubble.visibility = View.VISIBLE
+            val capturedFile = captureGate.withAttached {
+                // Mirror connected (just for this capture). Hiding the bubble keeps it out
+                // of the frame and changes the screen, so a fresh frame is composed into
+                // the just-attached surface even if nothing else on screen is moving.
+                bubble.visibility = View.INVISIBLE
+                try {
+                    // Drop any frame queued while the bubble was still drawn.
+                    runCatching { reader.acquireLatestImage()?.close() }
+                    delay(CAPTURE_SETTLE_MS)
+                    runCatching { captureFrame(reader) }.getOrNull()
+                } finally {
+                    // watchForegroundApp may have set GONE meanwhile; don't override that.
+                    if (bubble.visibility == View.INVISIBLE) bubble.visibility = View.VISIBLE
+                }
             }
             bubble.state = BubbleState.ANALYZING
             bubble.startAnalyzingAnimation()
@@ -441,10 +466,9 @@ class OverlayCaptureService : Service() {
     }
 
     private suspend fun captureFrame(reader: ImageReader): File? = withContext(Dispatchers.IO) {
-        // A just-opened VirtualDisplay (or one that hasn't produced a frame since
-        // its last read) needs a frame or two to catch up; briefly poll rather than
-        // failing on the first miss. The surface itself is NOT managed here - see
-        // openCaptureSurface/pauseCaptureSurface, tied to bubble visibility.
+        // A just-attached surface needs a frame or two to arrive; briefly poll rather
+        // than failing on the first miss. The surface itself is NOT managed here - see
+        // captureGate in onBubbleTapped.
         var image: Image? = null
         for (attempt in 0 until FRAME_POLL_ATTEMPTS) {
             image = reader.acquireLatestImage()
@@ -528,7 +552,7 @@ class OverlayCaptureService : Service() {
         private const val NOTIFICATION_ID = 4201
         private const val TOUCH_SLOP = 12
         private const val RESULT_DISPLAY_MS = 6_000L
-        private const val FRAME_POLL_ATTEMPTS = 10
+        private const val FRAME_POLL_ATTEMPTS = 15
         private const val FRAME_POLL_DELAY_MS = 80L
         private const val CAPTURE_SETTLE_MS = 120L
         private const val TAG = "OverlayCaptureService"

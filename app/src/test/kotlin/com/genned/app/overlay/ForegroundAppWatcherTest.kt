@@ -2,6 +2,12 @@ package com.genned.app.overlay
 
 import android.app.usage.UsageEvents
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
 /** Pure logic, no Android dependency — runs as a plain JUnit test. */
@@ -51,5 +57,44 @@ class ForegroundAppWatcherTest {
     @Test
     fun `no events and no prior state stays null`() {
         assertThat(ForegroundAppWatcher.applyEvents(emptyList(), start = null)).isNull()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `no usage queries while the screen is off, and nothing is missed after`() = runTest {
+        val screenOn = MutableStateFlow(true)
+        val queries = mutableListOf<Pair<Long, Long>>()
+        var clock = 100_000L
+        var pending = listOf(resumed("com.instagram.android"))
+        val emitted = mutableListOf<String?>()
+        backgroundScope.launch {
+            ForegroundAppWatcher.watch(screenOn, pollIntervalMs = 1_500L, now = { clock }) { start, end ->
+                queries += start to end
+                pending.also { pending = emptyList() }
+            }.collect { emitted += it }
+        }
+        runCurrent()
+        assertThat(queries).hasSize(1)
+        assertThat(emitted).containsExactly("com.instagram.android")
+
+        // Screen goes off: a minute passes with no queries at all.
+        screenOn.value = false
+        clock += 1_500L
+        advanceTimeBy(1_500L)
+        runCurrent()
+        val queriesWhenOff = queries.size
+        clock += 60_000L
+        advanceTimeBy(60_000L)
+        runCurrent()
+        assertThat(queries).hasSize(queriesWhenOff)
+
+        // Screen on: the next query covers the whole dark period, so an app switch made
+        // then (e.g. unlocked straight into WhatsApp) is seen.
+        pending = listOf(paused("com.instagram.android"), resumed("com.whatsapp"))
+        screenOn.value = true
+        runCurrent()
+        assertThat(queries).hasSize(queriesWhenOff + 1)
+        assertThat(queries.last().first).isEqualTo(queries[queriesWhenOff - 1].second)
+        assertThat(emitted.last()).isEqualTo("com.whatsapp")
     }
 }

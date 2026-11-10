@@ -86,18 +86,15 @@ design; this section is what it means for your data specifically.
 - **Off unless you turn it on.** Nothing here runs, and none of the permissions
   below are requested, unless you explicitly enable it in Settings.
 - **What it can see:** while active, and only while Instagram or WhatsApp is the
-  app currently in front, a small floating bubble appears, and the system begins
-  mirroring the screen into this app's process for as long as you stay in that
-  app (the same class of access a screen-recording app uses) — this is what lets
-  repeat taps in one visit work without re-prompting you for permission each
-  time. Tapping the bubble reads a single frame from that mirror at *that
-  moment* and runs it through the same on-device analysis as any other check in
-  this app; every other frame the system produces while you're scrolling is
-  never read, saved, or looked at by this app at all — the mirror exists only so
-  a tap has something to read from, not to continuously observe your screen.
-  Nothing is captured before the feature is enabled or after you leave
-  Instagram/WhatsApp (bubble hidden): the mirror is paused (detached) the
-  moment you leave, and fully released when the overlay is turned off.
+  app currently in front, a small floating bubble appears. The screen is **not**
+  mirrored while you scroll. Only when you tap the bubble does the app connect to
+  the system's screen capture (the same class of access a screen-recording app
+  uses) for a fraction of a second, read a single frame of *that moment*,
+  disconnect again, and run that frame through the same on-device analysis as any
+  other check in this app. Nothing is captured between taps, before the feature
+  is enabled, or after you leave Instagram/WhatsApp; the capture session is fully
+  released when the overlay is turned off. One capture permission covers the
+  whole session, so repeat taps don't re-prompt you.
   Android requires you to grant this via a system "screen capture" consent
   dialog every time the overlay service is (re)started; this
   is not something the app can request silently, and the consent does not
