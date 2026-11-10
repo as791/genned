@@ -1,0 +1,36 @@
+name: Screens preview (temporary)
+
+# Branch-only helper: renders the ScreenshotTest pictures and prints small JPEG previews
+# into the log as base64, for review where the artifact can't be downloaded. Not for main.
+on:
+  push:
+    branches: [usability-2]
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        run: |
+          : "${ANDROID_SDK_ROOT:=${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "$ANDROID_SDK_ROOT" -maxdepth 4 -path '*/cmdline-tools/*/bin/sdkmanager' 2>/dev/null | sort -V | tail -1)"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+      - name: Render screens
+        run: chmod +x gradlew && ./gradlew testDebugUnitTest --tests '*ScreenshotTest'
+      - name: Print previews
+        if: always()
+        run: |
+          command -v convert >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick >/dev/null)
+          ls -l app/build/screens/
+          for f in app/build/screens/*.png; do
+            convert "$f" -resize 405x -quality 62 /tmp/preview.jpg
+            echo "== SCREEN $(basename "$f" .png) $(base64 -w 0 /tmp/preview.jpg)"
+          done
