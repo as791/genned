@@ -3,6 +3,7 @@ package com.genned.app.data.analysis
 import android.net.Uri
 import com.genned.app.R
 import com.genned.app.data.storage.HistoryRepository
+import com.genned.app.data.storage.MediaKind
 import com.genned.app.data.video.SampledFrame
 import com.genned.app.data.video.VideoFrameSampler
 import com.genned.app.text.Texts
@@ -76,7 +77,7 @@ class AnalyzeVideoUseCase(
             val baseResult = evidenceEngine.aggregate(signals)
             val result = baseResult.copy(limitations = baseResult.limitations + videoLimitation(frames.size))
 
-            val analysisId = historyRepository.save(result, middleFrame.file)
+            val analysisId = historyRepository.save(result, middleFrame.file, MediaKind.VIDEO)
             return analysisId to result
         } finally {
             frames.forEach { it.file.delete() }

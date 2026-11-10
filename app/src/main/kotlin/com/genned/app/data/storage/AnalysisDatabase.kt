@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [AnalysisEntity::class], version = 1, exportSchema = true)
+@Database(entities = [AnalysisEntity::class], version = 2, exportSchema = true)
 abstract class AnalysisDatabase : RoomDatabase() {
     abstract fun analysisDao(): AnalysisDao
 
@@ -18,7 +20,14 @@ abstract class AnalysisDatabase : RoomDatabase() {
                     context.applicationContext,
                     AnalysisDatabase::class.java,
                     "genned.db",
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2).build().also { instance = it }
             }
+
+        /** Version 2 adds what was checked (photo, video or screen capture). Older checks keep null. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE analyses ADD COLUMN mediaKind TEXT")
+            }
+        }
     }
 }

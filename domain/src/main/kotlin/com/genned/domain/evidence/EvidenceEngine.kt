@@ -5,6 +5,7 @@ import com.genned.domain.model.Classification
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
+import com.genned.domain.model.verifiedCredentials
 
 /**
  * Turns independent [DetectionSignal]s into one [AnalysisResult]. This is the one
@@ -35,11 +36,7 @@ class EvidenceEngine(
     fun aggregate(signals: List<DetectionSignal>): AnalysisResult {
         val limitations = buildLimitations(signals)
 
-        val verifiedCredentials = signals.firstOrNull {
-            it.type == SignalType.CONTENT_CREDENTIALS &&
-                it.availability == SignalAvailability.AVAILABLE &&
-                it.score != null
-        }
+        val verifiedCredentials = signals.verifiedCredentials()
 
         val aiLikelihood = if (verifiedCredentials != null) {
             verifiedCredentials.score!!.coerceIn(0f, 1f)

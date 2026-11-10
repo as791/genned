@@ -58,6 +58,18 @@ class C2PAProviderTest {
     }
 
     @Test
+    fun `credentials that exist but are not counted are flagged to stay visible`() {
+        for (name in listOf("ai_untrusted", "capture_untrusted", "tampered_trusted")) {
+            assertThat(provider.toSignal(report(name)).notable).isTrue()
+        }
+        assertThat(provider.toSignal(C2paReadResult.RemoteManifest).notable).isTrue()
+        // Nothing there, or nothing we could read: folded away with the other empty checks.
+        assertThat(provider.toSignal(C2paReadResult.NoManifest).notable).isFalse()
+        assertThat(provider.toSignal(C2paReadResult.UnsupportedFormat).notable).isFalse()
+        assertThat(provider.toSignal(report("ai_trusted")).notable).isFalse()
+    }
+
+    @Test
     fun `nothing found is never evidence`() {
         for (result in listOf(
             C2paReadResult.NoManifest, C2paReadResult.RemoteManifest, C2paReadResult.UnsupportedFormat,

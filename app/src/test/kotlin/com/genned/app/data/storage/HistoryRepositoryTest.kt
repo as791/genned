@@ -79,6 +79,21 @@ class HistoryRepositoryTest {
     }
 
     @Test
+    fun `what was checked and what was found-but-not-counted are saved`() = runTest {
+        val previewFile = File.createTempFile("preview", ".jpg").apply { writeBytes(ByteArray(16) { 1 }) }
+        val result = sampleResult().let {
+            it.copy(signals = it.signals + DetectionSignal.unavailable(SignalType.WATERMARK, "found").copy(notable = true))
+        }
+
+        val id = repository.save(result, previewFile, MediaKind.VIDEO)
+
+        val saved = repository.observeSavedAnalysis(id).first()!!
+        assertThat(saved.mediaKind).isEqualTo(MediaKind.VIDEO)
+        assertThat(saved.result.signals.map { it.notable }).containsExactly(false, false, true).inOrder()
+        assertThat(repository.observeAll().first().single().mediaKind).isEqualTo(MediaKind.VIDEO)
+    }
+
+    @Test
     fun `delete removes the entry from history`() = runTest {
         val previewFile = File.createTempFile("preview", ".jpg").apply { writeBytes(ByteArray(16) { 1 }) }
         val id = repository.save(sampleResult(), previewFile)

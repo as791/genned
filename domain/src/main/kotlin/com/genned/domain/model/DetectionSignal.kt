@@ -17,6 +17,10 @@ package com.genned.domain.model
  * @param rawScore Optional detector-specific, uncalibrated evidence behind [score] (e.g. a
  *   classifier logit). Only used to combine several readings of the same detector before
  *   calibration, such as video frames; never shown, never persisted.
+ * @param notable For a signal that is not AVAILABLE: something was found that the user
+ *   should still see, even though it is not counted (e.g. Content Credentials from an
+ *   unrecognized signer). Screens show notable signals instead of folding them away with
+ *   the checks that simply had nothing to report.
  */
 data class DetectionSignal(
     val type: SignalType,
@@ -26,6 +30,7 @@ data class DetectionSignal(
     val description: String,
     val evidence: String? = null,
     val rawScore: Double? = null,
+    val notable: Boolean = false,
 ) {
     init {
         require(score == null || score in 0f..1f) { "score must be in [0,1], was $score" }

@@ -25,7 +25,7 @@ import com.genned.app.R
  * shareable card copy mirrors this same text.
  */
 @Composable
-fun DisclaimerCard(modifier: Modifier = Modifier) {
+fun DisclaimerCard(modifier: Modifier = Modifier, text: String = stringResource(R.string.result_disclaimer)) {
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -39,7 +39,7 @@ fun DisclaimerCard(modifier: Modifier = Modifier) {
             )
             Spacer(modifier = Modifier.width(12.dp))
             Text(
-                text = stringResource(R.string.result_disclaimer),
+                text = text,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

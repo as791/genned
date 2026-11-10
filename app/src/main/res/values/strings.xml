@@ -17,21 +17,40 @@
     <!-- Analyzing -->
     <string name="analyzing_title">Checking this photo…</string>
     <string name="analyzing_title_video">Checking this video…</string>
-    <string name="analyzing_stage_provenance">Checking provenance</string>
-    <string name="analyzing_stage_metadata">Inspecting metadata</string>
-    <string name="analyzing_stage_visual">Running visual analysis</string>
-    <string name="analyzing_stage_sampling_frames">Sampling video frames</string>
+    <string name="analyzing_stage_provenance">Looking for a signed record</string>
+    <string name="analyzing_stage_metadata">Reading file details</string>
+    <string name="analyzing_stage_visual">Looking at the picture</string>
+    <string name="analyzing_stage_sampling_frames">Picking frames from the video</string>
 
     <!-- Result -->
-    <string name="result_ai_likelihood">AI likelihood</string>
-    <string name="result_classification_high">HIGH AI LIKELIHOOD</string>
-    <string name="result_classification_uncertain">UNCERTAIN</string>
-    <string name="result_classification_low">LOW AI LIKELIHOOD</string>
-    <string name="result_why_heading">Why?</string>
-    <string name="result_important_heading">Important</string>
+    <string name="result_ai_likelihood_percent">AI likelihood: %1$d%%</string>
+    <string name="result_classification_high">Likely AI-generated</string>
+    <string name="result_classification_uncertain">Uncertain</string>
+    <string name="result_classification_low">Likely not AI-generated</string>
+    <string name="result_meaning_high">The checks point to AI. This is an estimate, not proof.</string>
+    <string name="result_meaning_uncertain">The checks aren\'t confident either way. Don\'t rely on this result.</string>
+    <string name="result_meaning_low">No sign of AI was found. That isn\'t proof it\'s real: new AI tools and edited pictures can slip through.</string>
+    <string name="result_verified_badge">Verified Content Credentials</string>
+    <string name="result_verified_ai">Made or edited with AI</string>
+    <string name="result_verified_capture">Camera capture, no AI declared</string>
+    <string name="result_verified_disclaimer">This comes from a signed record inside the file, checked on your phone. It shows what the signer declared, and nothing more.</string>
+    <string name="result_why_heading">What Genned checked</string>
+    <plurals name="result_checks_not_available">
+        <item quantity="one">%1$d check not available</item>
+        <item quantity="other">%1$d checks not available</item>
+    </plurals>
+    <string name="result_show_not_available">Show</string>
+    <string name="result_hide_not_available">Hide</string>
+    <string name="result_important_heading">Keep in mind</string>
+    <string name="result_kind_photo">Photo</string>
+    <string name="result_kind_video">Video</string>
+    <string name="result_kind_screen">Screen capture</string>
+    <string name="result_delete">Delete this check</string>
+    <string name="result_delete_confirm_title">Delete this check?</string>
+    <string name="result_delete_confirm_body">It will be removed from your history on this phone.</string>
     <string name="result_disclaimer">This is an estimate, not proof. AI-content detection can produce false positives and false negatives.</string>
-    <string name="result_share">Share Result</string>
-    <string name="result_check_another">Check Another</string>
+    <string name="result_share">Share result</string>
+    <string name="result_check_another">Check another</string>
     <string name="result_error_title">Couldn\'t check this photo</string>
     <string name="result_error_title_video">Couldn\'t check this video</string>
     <string name="result_error_unsupported">Genned couldn\'t open this file as a picture. JPEG, PNG and WEBP work on every phone; other formats depend on your Android version.</string>
@@ -46,13 +65,13 @@
     <string name="result_not_found_body">It may have been deleted from your history.</string>
 
     <!-- Signal types -->
-    <string name="signal_ai_classifier">Visual AI detector</string>
-    <string name="signal_content_credentials">Content Credentials</string>
-    <string name="signal_generator_metadata">Generator metadata</string>
-    <string name="signal_watermark">Known watermark</string>
-    <string name="signal_exif_metadata">Metadata</string>
-    <string name="signal_exif_camera_metadata_present">Camera metadata present</string>
-    <string name="signal_exif_no_camera_metadata">No camera metadata</string>
+    <string name="signal_ai_classifier">AI detector (how it looks)</string>
+    <string name="signal_content_credentials">Signed record (Content Credentials)</string>
+    <string name="signal_generator_metadata">AI tool\'s name in the file</string>
+    <string name="signal_watermark">Hidden AI watermark</string>
+    <string name="signal_exif_metadata">Camera details in the file</string>
+    <string name="signal_exif_camera_metadata_present">Camera details found</string>
+    <string name="signal_exif_no_camera_metadata">No camera details</string>
 
     <!-- History -->
     <string name="history_title">History</string>
@@ -99,7 +118,9 @@
     <string name="settings_debug_log_copied">Copied %1$d lines to clipboard</string>
 
     <!-- Signal card summaries -->
-    <string name="signal_summary_unavailable">Unavailable</string>
+    <string name="signal_summary_unavailable">Not available</string>
+    <string name="signal_summary_verified">Verified</string>
+    <string name="signal_summary_not_counted">Found, not counted</string>
     <string name="signal_summary_error">Couldn\'t be checked</string>
     <string name="signal_summary_ai_probability">%1$d%% AI probability</string>
     <string name="signal_summary_found">Found</string>
@@ -161,9 +182,11 @@
     <string name="limitation_no_generator_metadata">No generator metadata was found, but this does not indicate the image is authentic — social platforms and editing tools frequently strip metadata.</string>
 
     <!-- Shared result card -->
-    <string name="card_row_visual">Visual analysis</string>
-    <string name="card_row_generator_metadata">Generator metadata</string>
-    <string name="card_row_content_credentials">Content credentials</string>
+    <string name="card_row_visual">AI detector</string>
+    <string name="card_row_generator_metadata">AI tool\'s name in the file</string>
+    <string name="card_row_content_credentials">Signed record</string>
+    <string name="card_value_verified">Verified</string>
+    <string name="card_headline_verified">Verified</string>
     <string name="card_value_not_available">Not available</string>
     <string name="card_value_percent">%1$d%%</string>
     <string name="card_disclaimer">AI detection is probabilistic. It can produce false positives and false negatives.</string>

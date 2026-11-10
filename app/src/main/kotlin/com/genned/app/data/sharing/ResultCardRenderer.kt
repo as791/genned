@@ -56,7 +56,13 @@ class ResultCardRenderer(private val context: Context) {
             isAntiAlias = true
             isFakeBoldText = true
         }
-        canvas.drawText("${displayPercent(result.aiLikelihood)}%", margin, y, percentPaint)
+        val verified = result.verifiedCredentials
+        val headline = if (verified != null) {
+            context.getString(R.string.card_headline_verified)
+        } else {
+            "${displayPercent(result.aiLikelihood)}%"
+        }
+        canvas.drawText(headline, margin, y, percentPaint)
         y += 70f
 
         val labelPaint = TextPaint().apply {
@@ -65,7 +71,12 @@ class ResultCardRenderer(private val context: Context) {
             isAntiAlias = true
             isFakeBoldText = true
         }
-        canvas.drawText(classificationLabel(result.classification), margin, y, labelPaint)
+        val label = when {
+            verified == null -> classificationLabel(result.classification)
+            result.classification == Classification.LOW -> context.getString(R.string.result_verified_capture)
+            else -> context.getString(R.string.result_verified_ai)
+        }
+        canvas.drawText(label, margin, y, labelPaint)
         y += 90f
 
         canvas.drawLine(
@@ -93,7 +104,9 @@ class ResultCardRenderer(private val context: Context) {
         }
 
         y += 50f
-        val disclaimerText = context.getString(R.string.card_disclaimer)
+        val disclaimerText = context.getString(
+            if (verified != null) R.string.result_verified_disclaimer else R.string.card_disclaimer,
+        )
         val disclaimerPaint = TextPaint().apply {
             color = mutedColor
             textSize = 28f
@@ -127,6 +140,7 @@ class ResultCardRenderer(private val context: Context) {
             val score = signal?.score
             val value = when {
                 !available || score == null -> context.getString(R.string.card_value_not_available)
+                type == SignalType.CONTENT_CREDENTIALS -> context.getString(R.string.card_value_verified)
                 type == SignalType.AI_CLASSIFIER -> context.getString(R.string.card_value_percent, displayPercent(score))
                 score > 0f -> context.getString(R.string.signal_summary_found)
                 else -> context.getString(R.string.signal_summary_not_found)

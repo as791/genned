@@ -27,10 +27,12 @@ Privacy: everything runs on your phone and nothing is collected. See the
 1. You share an image into Genned (or pick one directly from the app).
 2. It's analyzed entirely on your device: a visual AI-likelihood classifier,
    metadata inspection (EXIF, PNG generator signatures), and provenance checks.
-3. You see an AI-likelihood percentage and a classification —
-   **HIGH** / **UNCERTAIN** / **LOW** (deliberately never "REAL"/"FAKE"/"definitely"
-   anything, unless cryptographically verified provenance actually supports it),
-   plus a "Why?" breakdown of every signal that contributed.
+3. You see a plain verdict — **Likely AI-generated** / **Uncertain** /
+   **Likely not AI-generated** — with an AI-likelihood percentage and what it means
+   (deliberately never "REAL"/"FAKE"/"definitely" anything). If verified Content
+   Credentials decide the result, it is shown as "Verified" with what the signer
+   declared instead of a percentage. Below is every check that contributed, the
+   deciding one first; checks that had nothing to report are folded into one row.
 4. The result — and only the result, never your original image — can be saved
    to local history or shared as a card via the normal Android share sheet.
 
@@ -48,9 +50,9 @@ Home ──choose image──▶ Analyzing ──▶ Result ──▶ History
 Any app's Share sheet ──▶ Genned ──▶ Analyzing ──▶ Result
 ```
 
-Screens: **Home** (choose image / share hint / recent checks), **Analyzing**
-(preview + real pipeline-stage progress, never a fake timer), **Result** (score,
-classification, per-signal "Why?" cards, disclaimer, share/check-another),
+Screens: **Home** (choose photo or video / share hint / recent checks), **Analyzing**
+(preview + real pipeline-stage progress, never a fake timer), **Result** (verdict,
+percentage, one card per check, disclaimer, check-another/share, delete),
 **History** (thumbnail rows, per-item delete, clear-all), **Settings** (privacy
 statement, bundled-model status, version).
 

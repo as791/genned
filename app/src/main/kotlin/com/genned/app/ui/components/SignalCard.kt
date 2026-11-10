@@ -38,13 +38,19 @@ fun SignalCard(signal: DetectionSignal, modifier: Modifier = Modifier) {
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(text = stringResource(labelRes(signal.type)), style = MaterialTheme.typography.titleLarge)
+            Text(
+                text = stringResource(labelRes(signal.type)),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(modifier = Modifier.height(4.dp))
 
             val score = signal.score
             val summary = when {
+                signal.notable -> stringResource(R.string.signal_summary_not_counted)
                 signal.availability == SignalAvailability.UNAVAILABLE -> stringResource(R.string.signal_summary_unavailable)
                 signal.availability == SignalAvailability.ERROR -> stringResource(R.string.signal_summary_error)
+                signal.type == SignalType.CONTENT_CREDENTIALS -> stringResource(R.string.signal_summary_verified)
                 signal.type == SignalType.AI_CLASSIFIER && score != null ->
                     stringResource(R.string.signal_summary_ai_probability, displayPercent(score))
                 // Inverted polarity: ExifMetadataProvider scores 0 when camera metadata is present.
@@ -56,7 +62,7 @@ fun SignalCard(signal: DetectionSignal, modifier: Modifier = Modifier) {
                 score != null && score > 0f -> stringResource(R.string.signal_summary_found)
                 else -> stringResource(R.string.signal_summary_not_found)
             }
-            Text(text = summary, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+            Text(text = summary, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(

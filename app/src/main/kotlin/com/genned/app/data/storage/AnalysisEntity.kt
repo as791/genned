@@ -20,4 +20,20 @@ data class AnalysisEntity(
     val classification: String,
     val signalsJson: String,
     val limitationsJson: String,
+    /** A [MediaKind] name; null for checks saved before version 2 of the database. */
+    val mediaKind: String? = null,
 )
+
+/** What was checked, so history and the result screen can label it. */
+enum class MediaKind {
+    PHOTO,
+    VIDEO,
+
+    /** A screen capture from the Instagram/WhatsApp bubble. */
+    SCREEN,
+    ;
+
+    companion object {
+        fun fromName(name: String?): MediaKind? = entries.firstOrNull { it.name == name }
+    }
+}

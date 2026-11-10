@@ -10,11 +10,15 @@ import com.genned.app.data.sharing.ResultCardRenderer
 import com.genned.app.data.storage.HistoryRepository
 import com.genned.app.data.storage.SavedAnalysis
 import com.genned.app.ui.appContainer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.io.File
 
 sealed interface ResultUiState {
@@ -31,6 +35,9 @@ class ResultViewModel(
 
     private val analysisId: Long? = savedStateHandle.get<String>("analysisId")?.toLongOrNull()
 
+    // Not viewModelScope: deleting closes this screen, which would cancel the delete halfway.
+    private val deleteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     val uiState: StateFlow<ResultUiState> = (
         if (analysisId == null) {
             flowOf(ResultUiState.NotFound)
@@ -39,6 +46,12 @@ class ResultViewModel(
                 .map { it?.let(ResultUiState::Loaded) ?: ResultUiState.NotFound }
         }
     ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ResultUiState.Loading)
+
+    /** Removes this check from history. Runs to completion even if the screen closes first. */
+    fun delete() {
+        val id = analysisId ?: return
+        deleteScope.launch { historyRepository.delete(id) }
+    }
 
     suspend fun renderShareCard(): File? {
         val analysis = (uiState.value as? ResultUiState.Loaded)?.analysis ?: return null

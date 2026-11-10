@@ -119,6 +119,10 @@ jobs:
         run: |
           if git ls-files --error-unmatch app/schemas >/dev/null 2>&1; then
             git status --porcelain app/schemas
+            # Print any new or changed schema file in full, so it can be committed as generated.
+            git status --porcelain app/schemas | awk '{print $2}' | while read -r f; do
+              echo "== BEGIN $f"; cat "$f"; echo; echo "== END $f"
+            done
             git diff --exit-code app/schemas
             test -z "$(git status --porcelain app/schemas)"
           else

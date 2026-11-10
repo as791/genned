@@ -88,7 +88,7 @@ class C2PAProvider(
     fun toSignal(result: C2paReadResult): DetectionSignal = when (result) {
         is C2paReadResult.Report -> fromReport(result.json)
         C2paReadResult.NoManifest -> unavailable(R.string.credentials_none)
-        C2paReadResult.RemoteManifest -> unavailable(R.string.credentials_remote)
+        C2paReadResult.RemoteManifest -> found(R.string.credentials_remote)
         C2paReadResult.UnsupportedFormat -> unavailable(R.string.credentials_unsupported_format)
         C2paReadResult.UnsupportedDevice -> unavailable(R.string.credentials_unsupported_device)
         is C2paReadResult.Failed -> {
@@ -108,14 +108,14 @@ class C2PAProvider(
             Trust.TRUSTED -> when (findings.source) {
                 DeclaredSource.GENERATIVE_AI -> available(AI_SCORE, texts.get(R.string.credentials_trusted_ai, signer), toolEvidence)
                 DeclaredSource.CAPTURE -> available(CAPTURE_SCORE, texts.get(R.string.credentials_trusted_capture, signer), null)
-                DeclaredSource.NOT_DECLARED -> unavailable(R.string.credentials_trusted_undeclared, signer)
+                DeclaredSource.NOT_DECLARED -> found(R.string.credentials_trusted_undeclared, signer)
             }
             Trust.UNTRUSTED -> if (findings.source == DeclaredSource.GENERATIVE_AI) {
-                unavailable(R.string.credentials_untrusted_ai, signer).copy(evidence = toolEvidence)
+                found(R.string.credentials_untrusted_ai, signer).copy(evidence = toolEvidence)
             } else {
-                unavailable(R.string.credentials_untrusted, signer)
+                found(R.string.credentials_untrusted, signer)
             }
-            Trust.INVALID -> unavailable(R.string.credentials_invalid).copy(
+            Trust.INVALID -> found(R.string.credentials_invalid).copy(
                 evidence = findings.failureCodes.takeIf { it.isNotEmpty() }
                     ?.let { texts.get(R.string.credentials_evidence_failures, it.joinToString(", ")) },
             )
@@ -132,6 +132,9 @@ class C2PAProvider(
     )
 
     private fun unavailable(id: Int, vararg args: Any) = DetectionSignal.unavailable(signalType, texts.get(id, *args))
+
+    /** Credentials exist but can't be counted: still unavailable as evidence, but worth showing. */
+    private fun found(id: Int, vararg args: Any) = unavailable(id, *args).copy(notable = true)
 
     companion object {
         private const val TAG = "C2PAProvider"

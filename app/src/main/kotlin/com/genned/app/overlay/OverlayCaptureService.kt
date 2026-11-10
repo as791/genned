@@ -39,6 +39,7 @@ import androidx.core.content.IntentCompat
 import com.genned.app.GennedApplication
 import com.genned.app.MainActivity
 import com.genned.app.R
+import com.genned.app.data.storage.MediaKind
 import com.genned.app.text.displayPercent
 import com.genned.app.ui.navigation.Routes
 import com.genned.domain.model.AnalysisInput
@@ -439,7 +440,7 @@ class OverlayCaptureService : Service() {
                     heightPx = cropSize,
                     fileSizeBytes = capturedFile.length(),
                 )
-                runCatching { container.analyzeImageUseCase.run(input, capturedFile) { } }
+                runCatching { container.analyzeImageUseCase.run(input, capturedFile, MediaKind.SCREEN) { } }
             } finally {
                 capturedFile.delete()
             }

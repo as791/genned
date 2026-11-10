@@ -3,6 +3,7 @@ package com.genned.app.data.analysis
 import com.genned.app.R
 import com.genned.app.text.Texts
 import com.genned.app.data.storage.HistoryRepository
+import com.genned.app.data.storage.MediaKind
 import com.genned.domain.evidence.EvidenceEngine
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.AnalysisResult
@@ -33,6 +34,7 @@ class AnalyzeImageUseCase(
     suspend fun run(
         input: AnalysisInput,
         thumbnailSourceFile: File,
+        mediaKind: MediaKind = MediaKind.PHOTO,
         onStage: suspend (AnalysisStage) -> Unit,
     ): Pair<Long, AnalysisResult> {
         onStage(AnalysisStage.PROVENANCE)
@@ -45,7 +47,7 @@ class AnalyzeImageUseCase(
         val visualSignals = runGroup(visualProviders, input)
 
         val result = evidenceEngine.aggregate(provenanceSignals + metadataSignals + visualSignals)
-        val analysisId = historyRepository.save(result, thumbnailSourceFile)
+        val analysisId = historyRepository.save(result, thumbnailSourceFile, mediaKind)
         return analysisId to result
     }
 

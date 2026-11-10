@@ -16,6 +16,7 @@ data class HistoryEntry(
     val thumbnailPath: String?,
     val aiLikelihood: Float,
     val classification: Classification,
+    val mediaKind: MediaKind? = null,
 )
 
 /** Full detail for the Result screen: the frozen result plus its saved thumbnail. */
@@ -24,6 +25,7 @@ data class SavedAnalysis(
     val timestampMillis: Long,
     val thumbnailPath: String?,
     val result: AnalysisResult,
+    val mediaKind: MediaKind? = null,
 )
 
 class HistoryRepository(
@@ -49,11 +51,12 @@ class HistoryRepository(
                     timestampMillis = it.timestampMillis,
                     thumbnailPath = it.thumbnailPath,
                     result = toAnalysisResult(it),
+                    mediaKind = MediaKind.fromName(it.mediaKind),
                 )
             }
         }
 
-    suspend fun save(result: AnalysisResult, normalizedPreviewFile: File): Long {
+    suspend fun save(result: AnalysisResult, normalizedPreviewFile: File, mediaKind: MediaKind = MediaKind.PHOTO): Long {
         val thumbnailPath = thumbnailStore.save(normalizedPreviewFile)
         val entity = AnalysisEntity(
             timestampMillis = System.currentTimeMillis(),
@@ -62,6 +65,7 @@ class HistoryRepository(
             classification = result.classification.name,
             signalsJson = json.encodeToString(result.signals.map { it.toDto() }),
             limitationsJson = json.encodeToString(result.limitations),
+            mediaKind = mediaKind.name,
         )
         return dao.insert(entity)
     }
@@ -82,6 +86,7 @@ class HistoryRepository(
         thumbnailPath = entity.thumbnailPath,
         aiLikelihood = entity.aiLikelihood,
         classification = Classification.valueOf(entity.classification),
+        mediaKind = MediaKind.fromName(entity.mediaKind),
     )
 
     private fun toAnalysisResult(entity: AnalysisEntity): AnalysisResult {

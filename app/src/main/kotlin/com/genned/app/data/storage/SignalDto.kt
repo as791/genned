@@ -19,6 +19,7 @@ data class SignalDto(
     val confidence: Float,
     val description: String,
     val evidence: String? = null,
+    val notable: Boolean = false,
 )
 
 fun DetectionSignal.toDto(): SignalDto = SignalDto(
@@ -28,6 +29,7 @@ fun DetectionSignal.toDto(): SignalDto = SignalDto(
     confidence = confidence,
     description = description,
     evidence = evidence,
+    notable = notable,
 )
 
 fun SignalDto.toDomain(): DetectionSignal = DetectionSignal(
@@ -37,4 +39,5 @@ fun SignalDto.toDomain(): DetectionSignal = DetectionSignal(
     confidence = confidence,
     description = description,
     evidence = evidence,
+    notable = notable,
 )
