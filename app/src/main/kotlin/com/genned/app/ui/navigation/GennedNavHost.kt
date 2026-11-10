@@ -8,6 +8,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.genned.app.ui.analyzing.AnalyzingScreen
+import com.genned.app.ui.guide.GuideScreen
 import com.genned.app.ui.history.HistoryScreen
 import com.genned.app.ui.home.HomeScreen
 import com.genned.app.ui.result.ResultScreen
@@ -22,6 +23,7 @@ fun GennedNavHost(navController: NavHostController = rememberNavController()) {
                 onMediaSelected = { uri, isVideo -> navController.navigate(Routes.analyzing(uri, isVideo)) },
                 onOpenHistory = { navController.navigate(Routes.HISTORY) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenGuide = { navController.navigate(Routes.GUIDE) },
                 onOpenHistoryItem = { id -> navController.navigate(Routes.result(id)) },
             )
         }
@@ -52,6 +54,7 @@ fun GennedNavHost(navController: NavHostController = rememberNavController()) {
             ResultScreen(
                 onCheckAnother = { navController.popBackStack(Routes.HOME, inclusive = false) },
                 onBack = { navController.popBackStack() },
+                onOpenGuide = { navController.navigate(Routes.GUIDE) },
             )
         }
         composable(Routes.HISTORY) {
@@ -64,7 +67,11 @@ fun GennedNavHost(navController: NavHostController = rememberNavController()) {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenLicenses = { navController.navigate(Routes.LICENSES) },
+                onOpenGuide = { navController.navigate(Routes.GUIDE) },
             )
+        }
+        composable(Routes.GUIDE) {
+            GuideScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.LICENSES) {
             LicensesScreen(onBack = { navController.popBackStack() })

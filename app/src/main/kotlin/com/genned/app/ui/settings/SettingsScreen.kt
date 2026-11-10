@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -55,10 +55,11 @@ import com.genned.app.overlay.OverlayPermissions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.genned.app.ui.components.SectionHeading
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit, onOpenGuide: () -> Unit) {
     val context = LocalContext.current
     val modelBundled = remember { ModelAssets.isBundled(context) }
     val ensembleBundled = remember {
@@ -71,7 +72,7 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
                 title = { Text(text = stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.cd_back))
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.cd_back))
                     }
                 },
             )
@@ -104,6 +105,12 @@ fun SettingsScreen(onBack: () -> Unit, onOpenLicenses: () -> Unit) {
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            SectionHeading(stringResource(R.string.settings_help_heading))
+            OutlinedButton(onClick = onOpenGuide) {
+                Text(text = stringResource(R.string.home_guide_more))
+            }
             Spacer(modifier = Modifier.height(24.dp))
 
             SectionHeading(stringResource(R.string.settings_about_heading))
@@ -261,10 +268,4 @@ private fun openPrivacyPolicy(context: Context) {
     } catch (e: ActivityNotFoundException) {
         // No browser installed: nothing can open the link.
     }
-}
-
-@Composable
-private fun SectionHeading(text: String) {
-    Text(text = text, style = MaterialTheme.typography.titleLarge)
-    Spacer(modifier = Modifier.height(8.dp))
 }

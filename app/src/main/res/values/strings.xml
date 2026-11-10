@@ -14,7 +14,29 @@
     <string name="home_no_history">No checks yet. Choose a photo or video to get started.</string>
     <string name="home_view_all_history">View all</string>
 
+    <string name="home_guide_heading">How to check a Reel, photo or video</string>
+    <string name="home_guide_more">How to read results</string>
+    <string name="cd_help_icon">How Genned works</string>
+
+    <!-- Guide -->
+    <string name="guide_title">How Genned works</string>
+    <string name="guide_share_heading">Check something from another app</string>
+    <string name="guide_step_1">Open the photo, video or Reel in Instagram, WhatsApp, your gallery or any other app.</string>
+    <string name="guide_step_2">Tap Share, then choose Genned.</string>
+    <string name="guide_step_3">Read the result. Nothing leaves your phone.</string>
+    <string name="guide_share_note">You can also pick a photo or video from your phone on the home screen.</string>
+    <string name="guide_results_heading">What the result means</string>
+    <string name="guide_result_high">The checks point to AI. It\'s still an estimate: real photos are sometimes flagged.</string>
+    <string name="guide_result_uncertain">Genned can\'t tell. Treat it as no answer.</string>
+    <string name="guide_result_low">No sign of AI was found. That isn\'t proof it\'s real: new AI tools, edits and screenshots can hide the signs.</string>
+    <string name="guide_result_verified">Some files carry a signed record of how they were made. When Genned can verify that record, it decides the result, with no guessing.</string>
+    <string name="guide_tips_heading">Tips</string>
+    <string name="guide_tip_original">Share the original file when you can. Screenshots and re-uploads lose detail and the signed record.</string>
+    <string name="guide_tip_video">Videos can be up to 3 minutes long. Genned looks at a few frames, not the sound or the motion.</string>
+    <string name="guide_tip_private">Every check runs on your phone. Genned has no internet access.</string>
+
     <!-- Analyzing -->
+    <string name="analyzing_cancel">Cancel</string>
     <string name="analyzing_title">Checking this photo…</string>
     <string name="analyzing_title_video">Checking this video…</string>
     <string name="analyzing_stage_provenance">Looking for a signed record</string>
@@ -42,6 +64,7 @@
     <string name="result_show_not_available">Show</string>
     <string name="result_hide_not_available">Hide</string>
     <string name="result_important_heading">Keep in mind</string>
+    <string name="result_what_does_this_mean">What does this mean?</string>
     <string name="result_kind_photo">Photo</string>
     <string name="result_kind_video">Video</string>
     <string name="result_kind_screen">Screen capture</string>
@@ -75,13 +98,17 @@
 
     <!-- History -->
     <string name="history_title">History</string>
-    <string name="history_clear_all">Clear Analysis History</string>
+    <string name="history_clear_all">Clear all history</string>
     <string name="history_clear_all_confirm_title">Clear all history?</string>
     <string name="history_clear_all_confirm_body">This deletes every saved check on this device. This can\'t be undone.</string>
-    <string name="history_delete_one">Delete</string>
-    <string name="history_deleted">Analysis deleted</string>
+    <string name="history_deleted">Check deleted</string>
     <string name="history_undo">Undo</string>
-    <string name="history_empty">No analyses yet.</string>
+    <string name="history_empty">No checks yet.</string>
+    <string name="history_group_today">Today</string>
+    <string name="history_group_yesterday">Yesterday</string>
+    <string name="history_group_earlier">Earlier</string>
+    <string name="history_row_video">Video</string>
+    <string name="history_row_screen">Screen capture</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
     <string name="delete">Delete</string>
@@ -95,6 +122,7 @@
     <string name="settings_model_heading">Detection model</string>
     <string name="settings_model_body_present">On-device classifier: %1$s</string>
     <string name="settings_model_body_absent">On-device visual classifier: not bundled in this build. Metadata-based checks still run.</string>
+    <string name="settings_help_heading">Help</string>
     <string name="settings_about_heading">About</string>
     <string name="settings_version">Version %1$s</string>
     <string name="settings_licenses">Open-source licenses</string>
@@ -193,9 +221,8 @@
     <string name="card_footer">Checked with Genned</string>
 
     <!-- Content descriptions -->
-    <string name="cd_image_preview">Selected image preview</string>
-    <string name="cd_history_thumbnail">Thumbnail of a previous analysis</string>
-    <string name="cd_delete_icon">Delete this analysis</string>
+    <string name="cd_image_preview">Preview of what is being checked</string>
+    <string name="cd_delete_icon">Delete this check</string>
     <string name="cd_settings_icon">Settings</string>
     <string name="cd_history_icon">History</string>
     <string name="cd_back">Back</string>

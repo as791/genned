@@ -9,7 +9,8 @@ val IndigoContainerDark = Color(0xFF33389B)
 
 val HighRed = Color(0xFFD8342A)
 val HighRedContainer = Color(0xFFFFDAD6)
-val UncertainAmber = Color(0xFFB5860B)
+// Darker than the bubble/card amber (#B5860B): as text on a light background that one is only 3.3:1.
+val UncertainAmber = Color(0xFF8F6900)
 val UncertainAmberContainer = Color(0xFFFFE8B8)
 val LowGreen = Color(0xFF2E7D4F)
 val LowGreenContainer = Color(0xFFC8F0D6)

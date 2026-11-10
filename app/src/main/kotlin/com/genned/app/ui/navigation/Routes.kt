@@ -9,6 +9,7 @@ object Routes {
     const val HISTORY = "history"
     const val SETTINGS = "settings"
     const val LICENSES = "licenses"
+    const val GUIDE = "guide"
 
     /**
      * Intent extra key used to open a specific saved analysis directly (e.g. from

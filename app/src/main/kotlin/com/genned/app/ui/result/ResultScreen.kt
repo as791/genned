@@ -52,8 +52,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -63,6 +61,7 @@ import com.genned.app.data.storage.MediaKind
 import com.genned.app.data.storage.SavedAnalysis
 import com.genned.app.text.displayPercent
 import com.genned.app.ui.components.DisclaimerCard
+import com.genned.app.ui.components.SectionHeading
 import com.genned.app.ui.components.SignalCard
 import com.genned.app.ui.components.classificationColor
 import com.genned.app.ui.components.classificationLabel
@@ -82,6 +81,7 @@ private val timeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.ME
 fun ResultScreen(
     onCheckAnother: () -> Unit,
     onBack: () -> Unit,
+    onOpenGuide: () -> Unit,
     viewModel: ResultViewModel = viewModel(factory = ResultViewModel.Factory),
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -142,6 +142,7 @@ fun ResultScreen(
                     }
                 },
                 onCheckAnother = onCheckAnother,
+                onOpenGuide = onOpenGuide,
                 contentPadding = padding,
             )
         }
@@ -211,6 +212,7 @@ private fun ResultContent(
     analysis: SavedAnalysis,
     onShare: () -> Unit,
     onCheckAnother: () -> Unit,
+    onOpenGuide: () -> Unit,
     contentPadding: PaddingValues,
 ) {
     val result = analysis.result
@@ -227,7 +229,10 @@ private fun ResultContent(
     ) {
         item {
             ResultHeader(analysis, verified)
-            Spacer(modifier = Modifier.height(24.dp))
+            TextButton(onClick = onOpenGuide, contentPadding = PaddingValues(0.dp)) {
+                Text(text = stringResource(R.string.result_what_does_this_mean))
+            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
         item {
             SectionHeading(stringResource(R.string.result_why_heading))
@@ -276,15 +281,6 @@ private fun ResultContent(
             }
         }
     }
-}
-
-@Composable
-private fun SectionHeading(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(bottom = 12.dp).semantics { heading() },
-    )
 }
 
 /** One row standing in for every check that had nothing to report; tap to see them. */
