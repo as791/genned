@@ -19,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.genned.app.R
 import com.genned.app.data.storage.HistoryEntry
+import com.genned.app.text.displayPercent
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -57,7 +58,7 @@ fun HistoryRow(
                 color = classificationColor(entry.classification),
             )
             Text(
-                text = "${(entry.aiLikelihood * 100).toInt()}% · " +
+                text = "${displayPercent(entry.aiLikelihood)}% · " +
                     timeFormatter.format(
                         Instant.ofEpochMilli(entry.timestampMillis).atZone(ZoneId.systemDefault()),
                     ),

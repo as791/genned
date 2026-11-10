@@ -57,7 +57,8 @@ class ShareIntentParserTest {
 
         val media = ShareIntentParser.extractSharedMedia(intent)
 
-        assertThat(media).isEqualTo(SharedMedia(imageUri, SharedMediaKind.IMAGE))
+        // totalCount lets the app say "checking the first of 2 items".
+        assertThat(media).isEqualTo(SharedMedia(imageUri, SharedMediaKind.IMAGE, totalCount = 2))
     }
 
     @Test
@@ -89,6 +90,15 @@ class ShareIntentParserTest {
         val media = ShareIntentParser.extractSharedMedia(intent)
 
         assertThat(media).isEqualTo(SharedMedia(imageUri, SharedMediaKind.IMAGE))
+    }
+
+    @Test
+    fun `an ACTION_VIEW typed as video is treated as a video`() {
+        val intent = Intent(Intent.ACTION_VIEW).apply { setDataAndType(videoUri, "video/mp4") }
+
+        val media = ShareIntentParser.extractSharedMedia(intent)
+
+        assertThat(media).isEqualTo(SharedMedia(videoUri, SharedMediaKind.VIDEO))
     }
 
     @Test

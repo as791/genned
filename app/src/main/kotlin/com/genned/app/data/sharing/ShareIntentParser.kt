@@ -6,7 +6,8 @@ import androidx.core.content.IntentCompat
 
 enum class SharedMediaKind { IMAGE, VIDEO }
 
-data class SharedMedia(val uri: Uri, val kind: SharedMediaKind)
+/** [totalCount] is how many items the share carried; only the first ([uri]) is checked. */
+data class SharedMedia(val uri: Uri, val kind: SharedMediaKind, val totalCount: Int = 1)
 
 /**
  * Pulls the shared image/video out of whatever launched the app: a share-sheet
@@ -33,9 +34,9 @@ object ShareIntentParser {
             Intent.ACTION_SEND_MULTIPLE -> {
                 val kind = mediaKindOf(intent.type) ?: return null
                 val uris = IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-                uris?.firstOrNull()?.let { SharedMedia(it, kind) }
+                uris?.firstOrNull()?.let { SharedMedia(it, kind, totalCount = uris.size) }
             }
-            Intent.ACTION_VIEW -> intent.data?.let { SharedMedia(it, SharedMediaKind.IMAGE) }
+            Intent.ACTION_VIEW -> intent.data?.let { SharedMedia(it, mediaKindOf(intent.type) ?: SharedMediaKind.IMAGE) }
             else -> null
         }
     }

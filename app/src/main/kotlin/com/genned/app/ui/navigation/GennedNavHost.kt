@@ -19,7 +19,7 @@ fun GennedNavHost(navController: NavHostController = rememberNavController()) {
     NavHost(navController = navController, startDestination = Routes.HOME) {
         composable(Routes.HOME) {
             HomeScreen(
-                onImageSelected = { uri -> navController.navigate(Routes.analyzing(uri, isVideo = false)) },
+                onMediaSelected = { uri, isVideo -> navController.navigate(Routes.analyzing(uri, isVideo)) },
                 onOpenHistory = { navController.navigate(Routes.HISTORY) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenHistoryItem = { id -> navController.navigate(Routes.result(id)) },

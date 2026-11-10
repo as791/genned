@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -36,7 +37,7 @@ import com.genned.app.ui.components.HistoryRow
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onImageSelected: (String) -> Unit,
+    onMediaSelected: (uri: String, isVideo: Boolean) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenHistoryItem: (Long) -> Unit,
@@ -44,8 +45,12 @@ fun HomeScreen(
 ) {
     val recentChecks by viewModel.recentChecks.collectAsState()
 
+    val context = LocalContext.current
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        uri?.let { onImageSelected(it.toString()) }
+        uri?.let {
+            val isVideo = context.contentResolver.getType(it)?.startsWith("video/") == true
+            onMediaSelected(it.toString(), isVideo)
+        }
     }
 
     Scaffold(
@@ -79,13 +84,13 @@ fun HomeScreen(
                 onClick = {
                     pickMedia.launch(
                         androidx.activity.result.PickVisualMediaRequest(
-                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ActivityResultContracts.PickVisualMedia.ImageAndVideo,
                         ),
                     )
                 },
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(text = stringResource(R.string.home_choose_image))
+                Text(text = stringResource(R.string.home_choose_media))
             }
 
             Text(

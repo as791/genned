@@ -9,17 +9,18 @@ import android.graphics.BitmapFactory
 import android.util.Log
 import com.genned.app.R
 import com.genned.app.text.ResourceTexts
+import com.genned.app.text.displayPercent
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.CropRect
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
 import com.genned.domain.provider.DetectionProvider
+import java.nio.FloatBuffer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import java.nio.FloatBuffer
 
 /**
  * Runs the bundled on-device AI-generated-image classifiers via ONNX Runtime Mobile.
@@ -136,7 +137,7 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
                 confidence = ModelConfig.BASE_CONFIDENCE,
                 description = texts.get(
                     if (crop != null) R.string.classifier_estimate_screenshot else R.string.classifier_estimate,
-                    (aiProbability * 100).toInt(),
+                    displayPercent(aiProbability),
                 ),
                 evidence = if (communityForensicsGap != null) EnsembleConfig.DISPLAY_NAME else ModelConfig.DISPLAY_NAME,
                 rawScore = rawScore,

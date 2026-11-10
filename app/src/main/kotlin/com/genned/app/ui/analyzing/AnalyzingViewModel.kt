@@ -56,9 +56,9 @@ class AnalyzingViewModel(
             )
             _uiState.value = AnalyzingUiState.Success(analysisId)
         } catch (e: VideoLoadException.TooLong) {
-            _uiState.value = AnalyzingUiState.Error(ImageLoadFailureReason.TOO_LARGE)
+            _uiState.value = AnalyzingUiState.Error(ImageLoadFailureReason.VIDEO_TOO_LONG)
         } catch (e: VideoLoadException) {
-            _uiState.value = AnalyzingUiState.Error(ImageLoadFailureReason.UNSUPPORTED)
+            _uiState.value = AnalyzingUiState.Error(ImageLoadFailureReason.VIDEO_UNSUPPORTED)
         } catch (e: Exception) {
             _uiState.value = AnalyzingUiState.Error(ImageLoadFailureReason.UNKNOWN)
         }

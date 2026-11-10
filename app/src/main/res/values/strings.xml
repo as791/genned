@@ -3,15 +3,20 @@
     <string name="app_name">Genned</string>
 
     <!-- Home -->
-    <string name="home_title">Is this image AI-generated?</string>
-    <string name="home_choose_image">Choose Image</string>
-    <string name="home_share_hint">Or share an image or video (e.g. a Reel or Short) from another app to Genned.</string>
+    <string name="home_title">Is this photo or video AI-generated?</string>
+    <string name="home_choose_media">Choose photo or video</string>
+    <string name="home_share_hint">Or share a photo or video (such as a Reel or Short) from another app to Genned.</string>
+    <plurals name="share_first_of_many">
+        <item quantity="one">Checking the first of %1$d item. Genned checks one at a time.</item>
+        <item quantity="other">Checking the first of %1$d items. Genned checks one at a time.</item>
+    </plurals>
     <string name="home_recent_checks">Recent checks</string>
-    <string name="home_no_history">No checks yet. Choose an image to get started.</string>
+    <string name="home_no_history">No checks yet. Choose a photo or video to get started.</string>
     <string name="home_view_all_history">View all</string>
 
     <!-- Analyzing -->
-    <string name="analyzing_title">Analyzing image…</string>
+    <string name="analyzing_title">Checking this photo…</string>
+    <string name="analyzing_title_video">Checking this video…</string>
     <string name="analyzing_stage_provenance">Checking provenance</string>
     <string name="analyzing_stage_metadata">Inspecting metadata</string>
     <string name="analyzing_stage_visual">Running visual analysis</string>
@@ -27,11 +32,15 @@
     <string name="result_disclaimer">This is an estimate, not proof. AI-content detection can produce false positives and false negatives.</string>
     <string name="result_share">Share Result</string>
     <string name="result_check_another">Check Another</string>
-    <string name="result_error_title">Couldn\'t analyze this image</string>
-    <string name="result_error_unsupported">This file isn\'t a supported image format (JPEG, PNG, or WEBP).</string>
-    <string name="result_error_corrupt">This image file appears to be corrupted or unreadable.</string>
-    <string name="result_error_too_large">This image is too large to analyze on this device.</string>
-    <string name="result_error_generic">Something went wrong while analyzing this image. Please try again.</string>
+    <string name="result_error_title">Couldn\'t check this photo</string>
+    <string name="result_error_title_video">Couldn\'t check this video</string>
+    <string name="result_error_unsupported">Genned couldn\'t open this file as a picture. JPEG, PNG and WEBP work on every phone; other formats depend on your Android version.</string>
+    <string name="result_error_corrupt">This picture file is damaged or can\'t be read.</string>
+    <string name="result_error_too_large">This picture is too large to check on this phone.</string>
+    <string name="result_error_generic">Something went wrong while checking this photo. Please try again.</string>
+    <string name="result_error_generic_video">Something went wrong while checking this video. Please try again.</string>
+    <string name="result_error_video_unsupported">Genned couldn\'t read this video. It may be damaged or in a format this phone can\'t play.</string>
+    <string name="result_error_video_too_long">Videos longer than 3 minutes can\'t be checked. Trim it or share a shorter clip.</string>
     <string name="result_try_again">Try again</string>
     <string name="result_not_found_title">This check is no longer available</string>
     <string name="result_not_found_body">It may have been deleted from your history.</string>
@@ -147,7 +156,7 @@
 
     <!-- Result limitations (EvidenceEngine) -->
     <string name="limitation_probabilistic">AI detection is probabilistic. It can produce false positives and false negatives, and newer generation models may not be well represented in the classifier\'s training data.</string>
-    <string name="limitation_classifier_did_not_run">The on-device visual classifier did not run for this image; the estimate below relies on metadata signals only and is less reliable.</string>
+    <string name="limitation_classifier_did_not_run">The on-device visual classifier did not run for this image; the estimate above relies on metadata signals only and is less reliable.</string>
     <string name="limitation_no_verified_credentials">No verified Content Credentials (C2PA) were found, so no cryptographic provenance could be established.</string>
     <string name="limitation_no_generator_metadata">No generator metadata was found, but this does not indicate the image is authentic — social platforms and editing tools frequently strip metadata.</string>
 

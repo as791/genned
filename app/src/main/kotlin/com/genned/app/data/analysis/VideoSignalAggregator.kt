@@ -3,6 +3,7 @@ package com.genned.app.data.analysis
 import com.genned.app.R
 import com.genned.app.data.detection.classifier.ModelConfig
 import com.genned.app.text.Texts
+import com.genned.app.text.displayPercent
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
@@ -56,11 +57,11 @@ object VideoSignalAggregator {
             score = videoScore,
             confidence = meanConfidence,
             description = texts.quantity(
-                R.plurals.video_classifier_estimate, available.size, (videoScore * 100).toInt(), available.size,
+                R.plurals.video_classifier_estimate, available.size, displayPercent(videoScore), available.size,
             ),
             evidence = texts.get(
                 R.string.video_per_frame_evidence,
-                scores.joinToString(", ") { texts.get(R.string.card_value_percent, (it * 100).toInt()) },
+                scores.joinToString(", ") { texts.get(R.string.card_value_percent, displayPercent(it)) },
             ),
         )
     }

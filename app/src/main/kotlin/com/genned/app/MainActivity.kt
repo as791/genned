@@ -2,6 +2,7 @@ package com.genned.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -77,7 +78,12 @@ class MainActivity : ComponentActivity() {
         if (openAnalysisId >= 0) {
             pendingResultId.value = openAnalysisId
         } else {
-            pendingSharedMedia.value = ShareIntentParser.extractSharedMedia(intent)
+            val media = ShareIntentParser.extractSharedMedia(intent)
+            pendingSharedMedia.value = media
+            if (media != null && media.totalCount > 1) {
+                val notice = resources.getQuantityString(R.plurals.share_first_of_many, media.totalCount, media.totalCount)
+                Toast.makeText(this, notice, Toast.LENGTH_LONG).show()
+            }
         }
     }
 }

@@ -9,15 +9,16 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import androidx.annotation.StringRes
 import com.genned.app.R
+import com.genned.app.text.displayPercent
 import com.genned.domain.model.AnalysisResult
 import com.genned.domain.model.Classification
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Renders a shareable result-card PNG entirely from the aggregated result — never
@@ -55,7 +56,7 @@ class ResultCardRenderer(private val context: Context) {
             isAntiAlias = true
             isFakeBoldText = true
         }
-        canvas.drawText("${(result.aiLikelihood * 100).toInt()}%", margin, y, percentPaint)
+        canvas.drawText("${displayPercent(result.aiLikelihood)}%", margin, y, percentPaint)
         y += 70f
 
         val labelPaint = TextPaint().apply {
@@ -126,7 +127,7 @@ class ResultCardRenderer(private val context: Context) {
             val score = signal?.score
             val value = when {
                 !available || score == null -> context.getString(R.string.card_value_not_available)
-                type == SignalType.AI_CLASSIFIER -> context.getString(R.string.card_value_percent, (score * 100).toInt())
+                type == SignalType.AI_CLASSIFIER -> context.getString(R.string.card_value_percent, displayPercent(score))
                 score > 0f -> context.getString(R.string.signal_summary_found)
                 else -> context.getString(R.string.signal_summary_not_found)
             }

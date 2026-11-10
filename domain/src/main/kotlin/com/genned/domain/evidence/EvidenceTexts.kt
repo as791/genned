@@ -23,7 +23,7 @@ interface EvidenceTexts {
             "AI detection is probabilistic. It can produce false positives and false negatives, and newer " +
                 "generation models may not be well represented in the classifier's training data."
         override val classifierDidNotRun =
-            "The on-device visual classifier did not run for this image; the estimate below relies on " +
+            "The on-device visual classifier did not run for this image; the estimate above relies on " +
                 "metadata signals only and is less reliable."
         override val noVerifiedCredentials =
             "No verified Content Credentials (C2PA) were found, so no cryptographic provenance could be " +

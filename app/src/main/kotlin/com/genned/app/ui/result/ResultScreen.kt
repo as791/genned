@@ -1,5 +1,6 @@
 package com.genned.app.ui.result
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -44,12 +45,12 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.genned.app.R
 import com.genned.app.data.sharing.ShareIntentFactory
 import com.genned.app.data.storage.SavedAnalysis
+import com.genned.app.text.displayPercent
 import com.genned.app.ui.components.DisclaimerCard
 import com.genned.app.ui.components.SignalCard
 import com.genned.app.ui.components.classificationColor
 import com.genned.app.ui.components.classificationLabel
 import kotlinx.coroutines.launch
-import android.graphics.BitmapFactory
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -201,7 +202,7 @@ private fun ResultHeader(analysis: SavedAnalysis) {
         Column {
             Text(text = stringResource(R.string.result_ai_likelihood), style = MaterialTheme.typography.bodyMedium)
             Text(
-                text = "${(analysis.result.aiLikelihood * 100).toInt()}%",
+                text = "${displayPercent(analysis.result.aiLikelihood)}%",
                 style = MaterialTheme.typography.displayMedium,
             )
             Text(

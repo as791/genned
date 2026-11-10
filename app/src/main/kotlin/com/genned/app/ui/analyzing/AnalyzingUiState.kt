@@ -2,7 +2,7 @@ package com.genned.app.ui.analyzing
 
 import com.genned.app.data.analysis.AnalysisStage
 
-enum class ImageLoadFailureReason { UNSUPPORTED, CORRUPT, TOO_LARGE, UNKNOWN }
+enum class ImageLoadFailureReason { UNSUPPORTED, CORRUPT, TOO_LARGE, VIDEO_UNSUPPORTED, VIDEO_TOO_LONG, UNKNOWN }
 
 sealed interface AnalyzingUiState {
     data object Loading : AnalyzingUiState

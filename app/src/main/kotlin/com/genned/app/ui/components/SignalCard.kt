@@ -15,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.genned.app.R
+import com.genned.app.text.displayPercent
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
@@ -45,7 +46,7 @@ fun SignalCard(signal: DetectionSignal, modifier: Modifier = Modifier) {
                 signal.availability == SignalAvailability.UNAVAILABLE -> stringResource(R.string.signal_summary_unavailable)
                 signal.availability == SignalAvailability.ERROR -> stringResource(R.string.signal_summary_error)
                 signal.type == SignalType.AI_CLASSIFIER && score != null ->
-                    stringResource(R.string.signal_summary_ai_probability, (score * 100).toInt())
+                    stringResource(R.string.signal_summary_ai_probability, displayPercent(score))
                 // Inverted polarity: ExifMetadataProvider scores 0 when camera metadata is present.
                 signal.type == SignalType.EXIF_METADATA -> if (score == 0f) {
                     stringResource(R.string.signal_exif_camera_metadata_present)

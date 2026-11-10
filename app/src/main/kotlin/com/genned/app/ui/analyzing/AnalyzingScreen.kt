@@ -57,17 +57,18 @@ fun AnalyzingScreen(
         when (val current = state) {
             is AnalyzingUiState.Error -> ErrorContent(
                 reason = current.reason,
+                isVideo = isVideo,
                 onRetry = { viewModel.retry(encodedUri, isVideo) },
                 onCancel = onCancel,
             )
-            is AnalyzingUiState.InProgress -> ProgressContent(current)
+            is AnalyzingUiState.InProgress -> ProgressContent(current, isVideo)
             AnalyzingUiState.Loading, is AnalyzingUiState.Success -> CircularProgressIndicator()
         }
     }
 }
 
 @Composable
-private fun ProgressContent(state: AnalyzingUiState.InProgress) {
+private fun ProgressContent(state: AnalyzingUiState.InProgress, isVideo: Boolean) {
     val bitmap = remember(state.previewFilePath) {
         runCatching { BitmapFactory.decodeFile(state.previewFilePath)?.asImageBitmap() }.getOrNull()
     }
@@ -85,7 +86,10 @@ private fun ProgressContent(state: AnalyzingUiState.InProgress) {
     Spacer(modifier = Modifier.height(32.dp))
     CircularProgressIndicator()
     Spacer(modifier = Modifier.height(24.dp))
-    Text(text = stringResource(R.string.analyzing_title), style = MaterialTheme.typography.titleLarge)
+    Text(
+        text = stringResource(if (isVideo) R.string.analyzing_title_video else R.string.analyzing_title),
+        style = MaterialTheme.typography.titleLarge,
+    )
     Spacer(modifier = Modifier.height(8.dp))
     Text(
         text = stringResource(stageLabel(state.stage)),
@@ -102,11 +106,14 @@ private fun stageLabel(stage: AnalysisStage): Int = when (stage) {
 }
 
 @Composable
-private fun ErrorContent(reason: ImageLoadFailureReason, onRetry: () -> Unit, onCancel: () -> Unit) {
-    Text(text = stringResource(R.string.result_error_title), style = MaterialTheme.typography.titleLarge)
+private fun ErrorContent(reason: ImageLoadFailureReason, isVideo: Boolean, onRetry: () -> Unit, onCancel: () -> Unit) {
+    Text(
+        text = stringResource(if (isVideo) R.string.result_error_title_video else R.string.result_error_title),
+        style = MaterialTheme.typography.titleLarge,
+    )
     Spacer(modifier = Modifier.height(8.dp))
     Text(
-        text = stringResource(errorMessage(reason)),
+        text = stringResource(errorMessage(reason, isVideo)),
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -120,9 +127,11 @@ private fun ErrorContent(reason: ImageLoadFailureReason, onRetry: () -> Unit, on
     }
 }
 
-private fun errorMessage(reason: ImageLoadFailureReason): Int = when (reason) {
+private fun errorMessage(reason: ImageLoadFailureReason, isVideo: Boolean): Int = when (reason) {
     ImageLoadFailureReason.UNSUPPORTED -> R.string.result_error_unsupported
     ImageLoadFailureReason.CORRUPT -> R.string.result_error_corrupt
     ImageLoadFailureReason.TOO_LARGE -> R.string.result_error_too_large
-    ImageLoadFailureReason.UNKNOWN -> R.string.result_error_generic
+    ImageLoadFailureReason.VIDEO_UNSUPPORTED -> R.string.result_error_video_unsupported
+    ImageLoadFailureReason.VIDEO_TOO_LONG -> R.string.result_error_video_too_long
+    ImageLoadFailureReason.UNKNOWN -> if (isVideo) R.string.result_error_generic_video else R.string.result_error_generic
 }

@@ -39,9 +39,15 @@ import androidx.core.content.IntentCompat
 import com.genned.app.GennedApplication
 import com.genned.app.MainActivity
 import com.genned.app.R
+import com.genned.app.text.displayPercent
 import com.genned.app.ui.navigation.Routes
 import com.genned.domain.model.AnalysisInput
 import com.genned.domain.model.Classification
+import java.io.File
+import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -53,11 +59,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * Experimental, opt-in-only foreground service backing the floating "Screen
@@ -449,7 +450,7 @@ class OverlayCaptureService : Service() {
 
             bubble.stopAnalyzingAnimation()
             lastAnalysisId = analysisId
-            bubble.resultPercent = (result.aiLikelihood * 100).roundToInt()
+            bubble.resultPercent = displayPercent(result.aiLikelihood)
             bubble.resultColor = colorFor(result.classification)
             bubble.state = BubbleState.RESULT
 
