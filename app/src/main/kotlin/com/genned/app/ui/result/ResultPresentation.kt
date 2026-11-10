@@ -1,5 +1,7 @@
 package com.genned.app.ui.result
 
+import com.genned.app.data.storage.MediaKind
+import com.genned.domain.evidence.EvidenceWeights
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
 import com.genned.domain.model.SignalType
@@ -21,7 +23,32 @@ data class ArrangedSignals(val shown: List<DetectionSignal>, val notAvailable: L
  *
  * Everything else (unavailable or failed, nothing notable) goes to [ArrangedSignals.notAvailable].
  */
+/** Why a result is "Uncertain", so a score like 87% next to "Uncertain" doesn't read as a contradiction. */
+sealed interface UncertainHint {
+    /** The score leans AI but is under the cut-off for saying so ([cutOffPercent]). */
+    data class BelowHighCutOff(val cutOffPercent: Int) : UncertainHint
+
+    /** The score leans away from AI but is not under the cut-off for saying so ([cutOffPercent]). */
+    data class AboveLowCutOff(val cutOffPercent: Int) : UncertainHint
+
+    /** An older check whose kind (and so its low cut-off) isn't known. */
+    data object Generic : UncertainHint
+}
+
 object ResultPresentation {
+
+    /**
+     * Explains an Uncertain result with the cut-off it missed. Display only: the cut-offs are
+     * the ones EvidenceEngine applied (EvidenceWeights), read here, never changed.
+     */
+    fun uncertainHint(aiLikelihood: Float, mediaKind: MediaKind?): UncertainHint = when {
+        aiLikelihood >= 0.5f -> UncertainHint.BelowHighCutOff(percent(EvidenceWeights.HIGH_THRESHOLD))
+        mediaKind == MediaKind.VIDEO -> UncertainHint.AboveLowCutOff(percent(EvidenceWeights.LOW_THRESHOLD))
+        mediaKind != null -> UncertainHint.AboveLowCutOff(percent(EvidenceWeights.PHOTO_LOW_THRESHOLD))
+        else -> UncertainHint.Generic
+    }
+
+    private fun percent(threshold: Float): Int = Math.round(threshold * 100)
 
     fun arrange(signals: List<DetectionSignal>): ArrangedSignals {
         val verified = signals.verifiedCredentials()

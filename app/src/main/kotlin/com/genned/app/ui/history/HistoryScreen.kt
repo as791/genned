@@ -126,6 +126,7 @@ fun HistoryScreen(
                     items(groupEntries, key = { it.id }) { entry ->
                         SwipeToDeleteRow(
                             entry = entry,
+                            showDate = group == DayGroup.EARLIER,
                             onOpen = { onOpenItem(entry.id) },
                             onDelete = { deleteWithUndo(entry.id) },
                         )
@@ -170,7 +171,7 @@ private fun groupLabel(group: DayGroup): Int = when (group) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeToDeleteRow(entry: HistoryEntry, onOpen: () -> Unit, onDelete: () -> Unit) {
+private fun SwipeToDeleteRow(entry: HistoryEntry, showDate: Boolean, onOpen: () -> Unit, onDelete: () -> Unit) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value != SwipeToDismissBoxValue.Settled) onDelete()
@@ -205,6 +206,7 @@ private fun SwipeToDeleteRow(entry: HistoryEntry, onOpen: () -> Unit, onDelete: 
         HistoryRow(
             entry = entry,
             onClick = onOpen,
+            showDate = showDate,
             modifier = Modifier
                 .background(MaterialTheme.colorScheme.background)
                 .semantics {

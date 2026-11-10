@@ -386,15 +386,21 @@ private fun ResultHeader(analysis: SavedAnalysis, verified: DetectionSignal?) {
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text(
-            text = verified?.description ?: stringResource(meaningOf(result.classification)),
+            text = verified?.description ?: meaningOf(analysis),
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
-private fun meaningOf(classification: Classification): Int = when (classification) {
-    Classification.HIGH -> R.string.result_meaning_high
-    Classification.UNCERTAIN -> R.string.result_meaning_uncertain
-    Classification.LOW -> R.string.result_meaning_low
+@Composable
+private fun meaningOf(analysis: SavedAnalysis): String = when (analysis.result.classification) {
+    Classification.HIGH -> stringResource(R.string.result_meaning_high)
+    Classification.LOW -> stringResource(R.string.result_meaning_low)
+    Classification.UNCERTAIN ->
+        when (val hint = ResultPresentation.uncertainHint(analysis.result.aiLikelihood, analysis.mediaKind)) {
+            is UncertainHint.BelowHighCutOff -> stringResource(R.string.result_meaning_uncertain_high, hint.cutOffPercent)
+            is UncertainHint.AboveLowCutOff -> stringResource(R.string.result_meaning_uncertain_low, hint.cutOffPercent)
+            UncertainHint.Generic -> stringResource(R.string.result_meaning_uncertain)
+        }
 }

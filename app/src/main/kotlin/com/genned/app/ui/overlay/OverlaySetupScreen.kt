@@ -158,6 +158,7 @@ fun OverlaySetupScreen(onBack: () -> Unit) {
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Spacer(modifier = Modifier.height(8.dp))
             Text(text = stringResource(R.string.overlay_setup_intro), style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(24.dp))
 

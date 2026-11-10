@@ -27,7 +27,7 @@
     <string name="guide_share_note">You can also pick a photo or video from your phone on the home screen.</string>
     <string name="guide_results_heading">What the result means</string>
     <string name="guide_result_high">The checks point to AI. It\'s still an estimate: real photos are sometimes flagged.</string>
-    <string name="guide_result_uncertain">Genned can\'t tell. Treat it as no answer.</string>
+    <string name="guide_result_uncertain">Genned can\'t tell. Treat it as no answer. Scores from about %1$d%% to %2$d%% land here, because in that range the detector is wrong too often.</string>
     <string name="guide_result_low">No sign of AI was found. That isn\'t proof it\'s real: new AI tools, edits and screenshots can hide the signs.</string>
     <string name="guide_result_verified">Some files carry a signed record of how they were made. When Genned can verify that record, it decides the result, with no guessing.</string>
     <string name="guide_tips_heading">Tips</string>
@@ -50,7 +50,9 @@
     <string name="result_classification_uncertain">Uncertain</string>
     <string name="result_classification_low">Likely not AI-generated</string>
     <string name="result_meaning_high">The checks point to AI. This is an estimate, not proof.</string>
-    <string name="result_meaning_uncertain">The checks aren\'t confident either way. Don\'t rely on this result.</string>
+    <string name="result_meaning_uncertain">The checks aren\'t confident either way. Treat this as no answer.</string>
+    <string name="result_meaning_uncertain_high">This score is high, but Genned only says \"likely AI-generated\" at %1$d%% or more. Below that it is wrong too often. Treat this as no answer.</string>
+    <string name="result_meaning_uncertain_low">This score is low, but Genned only says \"likely not AI-generated\" below %1$d%%. Above that it is wrong too often. Treat this as no answer.</string>
     <string name="result_meaning_low">No sign of AI was found. That isn\'t proof it\'s real: new AI tools and edited pictures can slip through.</string>
     <string name="result_verified_badge">Verified Content Credentials</string>
     <string name="result_verified_ai">Made or edited with AI</string>
@@ -186,37 +188,37 @@
     <string name="signal_summary_not_found">Not found</string>
 
     <!-- Signal descriptions (saved with each result in history) -->
-    <string name="signal_failed_unexpectedly">This detector failed unexpectedly.</string>
-    <string name="classifier_not_bundled">The on-device visual classifier is not bundled in this build.</string>
-    <string name="classifier_decode_failed">Could not decode the normalized image for classification.</string>
-    <string name="classifier_unexpected_output">The visual classifier returned an unexpected output.</string>
-    <string name="classifier_failed">The visual classifier failed to run on this image.</string>
-    <string name="classifier_estimate">The on-device visual classifier estimates a %1$d%% probability this image is AI-generated.</string>
-    <string name="classifier_estimate_screenshot">The on-device visual classifier estimates a %1$d%% probability this image is AI-generated. This looks like a screenshot, so only the picture in it was checked.</string>
-    <string name="video_classifier_failed">The visual classifier couldn\'t analyze the sampled video frames.</string>
-    <string name="video_classifier_not_bundled">The on-device visual classifier is not bundled in this build, so sampled video frames could not be analyzed.</string>
+    <string name="signal_failed_unexpectedly">This check failed unexpectedly.</string>
+    <string name="classifier_not_bundled">The AI detector isn\'t included in this build.</string>
+    <string name="classifier_decode_failed">The picture couldn\'t be read for the AI detector.</string>
+    <string name="classifier_unexpected_output">The AI detector gave an answer Genned couldn\'t read.</string>
+    <string name="classifier_failed">The AI detector couldn\'t run on this picture.</string>
+    <string name="classifier_estimate">From how the picture looks, the AI detector rates it %1$d%% likely to be AI-generated.</string>
+    <string name="classifier_estimate_screenshot">From how the picture looks, the AI detector rates it %1$d%% likely to be AI-generated. This looks like a screenshot, so only the picture inside it was checked.</string>
+    <string name="video_classifier_failed">The AI detector couldn\'t check the frames taken from this video.</string>
+    <string name="video_classifier_not_bundled">The AI detector isn\'t included in this build, so the video\'s frames couldn\'t be checked.</string>
     <plurals name="video_classifier_estimate">
-        <item quantity="one">The on-device visual classifier estimates a %1$d%% AI-generated probability for this video from %2$d sampled frame, calibrated for video, which is harder to judge than photos.</item>
-        <item quantity="other">The on-device visual classifier estimates a %1$d%% AI-generated probability for this video from %2$d sampled frames, calibrated for video, which is harder to judge than photos.</item>
+        <item quantity="one">From %2$d sampled frame, the AI detector rates this video %1$d%% likely to be AI-generated. Video is harder to judge than photos.</item>
+        <item quantity="other">From %2$d sampled frames, the AI detector rates this video %1$d%% likely to be AI-generated. Video is harder to judge than photos.</item>
     </plurals>
-    <string name="video_per_frame_evidence">Per-frame AI probability: %1$s</string>
-    <string name="video_metadata_not_implemented">Metadata inspection is not yet implemented for video files.</string>
+    <string name="video_per_frame_evidence">Each frame: %1$s</string>
+    <string name="video_metadata_not_implemented">Genned doesn\'t read this from video files yet.</string>
     <plurals name="video_limitation">
-        <item quantity="one">This is a video: the estimate above is based on classifying %1$d sampled frame as a still image, not the full video, audio, or motion/temporal analysis. Frame-level classification may miss video-specific manipulation.</item>
-        <item quantity="other">This is a video: the estimate above is based on classifying %1$d sampled frames as still images, not the full video, audio, or motion/temporal analysis. Frame-level classification may miss video-specific manipulation.</item>
+        <item quantity="one">This is a video. Genned checked %1$d still frame from it, not the sound or the motion, so it can miss things only a moving video shows.</item>
+        <item quantity="other">This is a video. Genned checked %1$d still frames from it, not the sound or the motion, so it can miss things only a moving video shows.</item>
     </plurals>
-    <string name="exif_unreadable">Could not read EXIF metadata for this file.</string>
+    <string name="exif_unreadable">The file\'s details couldn\'t be read.</string>
     <plurals name="exif_camera_metadata_present">
-        <item quantity="one">Camera capture metadata (%1$d field, e.g. make/model/exposure) is present. This is consistent with a camera-captured photo, but does not rule out later AI editing or generation.</item>
-        <item quantity="other">Camera capture metadata (%1$d fields, e.g. make/model/exposure) is present. This is consistent with a camera-captured photo, but does not rule out later AI editing or generation.</item>
+        <item quantity="one">The file has camera details (%1$d field, such as make, model or exposure). That fits a photo taken with a camera, but doesn\'t rule out AI editing afterwards.</item>
+        <item quantity="other">The file has camera details (%1$d fields, such as make, model or exposure). That fits a photo taken with a camera, but doesn\'t rule out AI editing afterwards.</item>
     </plurals>
-    <string name="exif_no_camera_metadata">No camera capture metadata (make, model, exposure) was found. This is common for both AI-generated images and ordinary photos that were re-saved, screenshotted, or shared through messaging or social apps — it is weak evidence on its own.</string>
-    <string name="generator_none_found">No generator metadata found. This does not indicate that the image is authentic — social platforms and messaging apps frequently strip metadata on upload or download.</string>
-    <string name="generator_png_parameters">Image metadata contains a PNG \"parameters\" text chunk, where Stable Diffusion–family tools store generation settings.</string>
-    <string name="generator_png_parameters_evidence">PNG \"parameters\" chunk (Stable Diffusion–family generation metadata)</string>
-    <string name="generator_names_tool">Image metadata (%1$s) names an AI image-generation tool.</string>
-    <string name="generator_has_parameters">Image metadata (%1$s) contains AI image-generation parameters.</string>
-    <string name="watermark_unavailable">Known-watermark checking is not available on-device for this build.</string>
+    <string name="exif_no_camera_metadata">The file has no camera details (make, model, exposure). That\'s normal for AI pictures, and also for real photos that were screenshotted or sent through a messaging or social app, so it says little.</string>
+    <string name="generator_none_found">No AI tool left its name in the file. That doesn\'t mean the picture is real: social and messaging apps usually remove this information.</string>
+    <string name="generator_png_parameters">The file contains a \"parameters\" note, where Stable Diffusion tools save their generation settings.</string>
+    <string name="generator_png_parameters_evidence">PNG \"parameters\" note (Stable Diffusion generation settings)</string>
+    <string name="generator_names_tool">The file\'s details (%1$s) name an AI image tool.</string>
+    <string name="generator_has_parameters">The file\'s details (%1$s) contain AI generation settings.</string>
+    <string name="watermark_unavailable">Genned can\'t check for hidden AI watermarks (such as SynthID) on the phone yet.</string>
     <string name="credentials_none">No Content Credentials (C2PA) in this file. Most apps and social networks remove them, so this says nothing either way.</string>
     <string name="credentials_trusted_ai">Verified Content Credentials signed by %1$s say this was made or edited with generative AI.</string>
     <string name="credentials_trusted_capture">Verified Content Credentials signed by %1$s say this was captured with a camera, with no generative AI declared.</string>
@@ -235,10 +237,10 @@
     <string name="credentials_evidence_failures">Verification problems: %1$s</string>
 
     <!-- Result limitations (EvidenceEngine) -->
-    <string name="limitation_probabilistic">AI detection is probabilistic. It can produce false positives and false negatives, and newer generation models may not be well represented in the classifier\'s training data.</string>
-    <string name="limitation_classifier_did_not_run">The on-device visual classifier did not run for this image; the estimate above relies on metadata signals only and is less reliable.</string>
-    <string name="limitation_no_verified_credentials">No verified Content Credentials (C2PA) were found, so no cryptographic provenance could be established.</string>
-    <string name="limitation_no_generator_metadata">No generator metadata was found, but this does not indicate the image is authentic — social platforms and editing tools frequently strip metadata.</string>
+    <string name="limitation_probabilistic">AI detection is an estimate. It can flag real pictures and miss AI ones, especially from the newest AI tools.</string>
+    <string name="limitation_classifier_did_not_run">The AI detector didn\'t run on this one, so the estimate above rests on file details only and is less reliable.</string>
+    <string name="limitation_no_verified_credentials">No verified signed record (Content Credentials) was found, so there\'s no proof of where this came from.</string>
+    <string name="limitation_no_generator_metadata">No AI tool\'s name was found in the file. That doesn\'t mean it\'s real: social and editing apps usually remove it.</string>
 
     <!-- Shared result card -->
     <string name="card_row_visual">AI detector</string>

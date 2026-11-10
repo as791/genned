@@ -33,14 +33,19 @@ import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
 // The phone's own date and time style and language.
-private val timeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+private val dateTimeFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+private val timeOnlyFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
 
-/** One saved check. The whole row opens it. */
+/**
+ * One saved check. The whole row opens it. [showDate] is false where a header above the row
+ * already says the day (History's "Today" and "Yesterday").
+ */
 @Composable
 fun HistoryRow(
     entry: HistoryEntry,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    showDate: Boolean = true,
 ) {
     Row(
         modifier = modifier
@@ -79,7 +84,7 @@ fun HistoryRow(
             }
             Text(
                 text = kind + "${displayPercent(entry.aiLikelihood)}% · " +
-                    timeFormatter.format(
+                    (if (showDate) dateTimeFormatter else timeOnlyFormatter).format(
                         Instant.ofEpochMilli(entry.timestampMillis).atZone(ZoneId.systemDefault()),
                     ),
                 style = MaterialTheme.typography.bodyMedium,
