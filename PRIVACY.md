@@ -43,18 +43,22 @@ sheet. What happens after that is governed by that app's privacy policy.
 
 ## Screen overlay (optional, off by default)
 
-Settings → Experimental → "Enable overlay bubble" lets you check what's on screen in
-Instagram or WhatsApp. It only runs if you turn it on and grant three Android
-permissions:
+The Instagram and WhatsApp bubble (Home or Settings → "Set up the bubble") lets you
+check what's on screen in those apps. It only runs if you turn it on and grant three
+Android permissions:
 
 | Permission | Why |
 |---|---|
 | Display over other apps | To draw the floating bubble. |
 | Usage access | To know which app is in front, so the bubble shows only in Instagram or WhatsApp. It reveals app names only, never what's in them. |
-| Screen capture (asked for every time the overlay starts) | Gives the app a live copy of your screen while Instagram or WhatsApp is open. Genned reads one frame from it only when you tap the bubble. |
+| Screen capture (asked for every time the overlay starts) | Lets Genned read your screen. It connects only for the moment you tap the bubble, reads one frame and disconnects; nothing is read while you scroll. |
+| Notifications (optional, Android 13 and newer) | To show the bubble's notification with a Stop button and your last result. The bubble works without it. |
 
-- While the overlay is on, Android shows a notification you can't hide, with a Stop
-  button.
+- While the overlay is on, Android lists it as running. If notifications are allowed
+  it shows a notification with a Stop button; you can also drag the bubble to the ✕ at
+  the bottom of the screen to turn it off.
+- The bubble's position and whether you closed the home screen's bubble card are saved
+  on your phone, with the app's other data.
 - A frame you capture is handled exactly like a shared image: analyzed on the phone,
   then deleted, with only the result and a thumbnail kept in history.
 - Genned never reads other apps' data, messages, network traffic or accessibility

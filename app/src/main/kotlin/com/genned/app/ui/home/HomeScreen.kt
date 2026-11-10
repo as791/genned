@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.genned.app.R
+import com.genned.app.overlay.OverlayCaptureService
 import com.genned.app.ui.components.HistoryRow
 import com.genned.app.ui.guide.ShareSteps
 
@@ -50,10 +51,13 @@ fun HomeScreen(
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenGuide: () -> Unit,
+    onOpenOverlaySetup: () -> Unit,
     onOpenHistoryItem: (Long) -> Unit,
     viewModel: HomeViewModel = viewModel(factory = HomeViewModel.Factory),
 ) {
     val recentChecks by viewModel.recentChecks.collectAsState()
+    val overlayCardDismissed by viewModel.overlayCardDismissed.collectAsState()
+    val overlayRunning by OverlayCaptureService.running.collectAsState()
 
     val context = LocalContext.current
     val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -113,6 +117,12 @@ fun HomeScreen(
                 )
             }
 
+            if (!overlayRunning && !overlayCardDismissed) {
+                item {
+                    OverlayCard(onSetUp = onOpenOverlaySetup, onDismiss = viewModel::dismissOverlayCard)
+                }
+            }
+
             if (recentChecks.isEmpty()) {
                 // Before the first check: show how sharing from another app works.
                 item { GuideCard(onOpenGuide = onOpenGuide) }
@@ -135,6 +145,38 @@ fun HomeScreen(
                 }
                 items(recentChecks, key = { it.id }) { entry ->
                     HistoryRow(entry = entry, onClick = { onOpenHistoryItem(entry.id) })
+                }
+            }
+        }
+    }
+}
+
+/** Points to the Instagram/WhatsApp bubble, the only way to check content those apps won't share out. */
+@Composable
+private fun OverlayCard(onSetUp: () -> Unit, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = stringResource(R.string.home_overlay_card_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = stringResource(R.string.home_overlay_card_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) {
+                    Text(text = stringResource(R.string.home_overlay_card_dismiss))
+                }
+                TextButton(onClick = onSetUp) {
+                    Text(text = stringResource(R.string.home_overlay_card_action))
                 }
             }
         }

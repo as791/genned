@@ -27,6 +27,7 @@ import android.os.PowerManager
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
@@ -83,6 +84,7 @@ class OverlayCaptureService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var bubbleView: BubbleView? = null
+    private var dismissTarget: DismissTargetView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var lastAnalysisId: Long? = null
 
@@ -327,9 +329,15 @@ class OverlayCaptureService : Service() {
     private fun addBubble() {
         val bubble = BubbleView(this)
         bubble.visibility = android.view.View.GONE // shown only over target apps, see watchForegroundApp()
+        bubble.contentDescription = getString(R.string.bubble_cd_idle)
         bubbleView = bubble
 
-        val size = (56 * resources.displayMetrics.density).toInt()
+        val preferences = (application as GennedApplication).container.preferences
+        val size = (BUBBLE_SIZE_DP * resources.displayMetrics.density).toInt()
+        // Where it was left last time, pulled back on screen if the screen changed since.
+        val (startAtX, startAtY) = (preferences.bubblePosition ?: (0 to screenHeight / 3)).let { (x, y) ->
+            BubbleGeometry.clampToScreen(x, y, size, screenWidth, screenHeight)
+        }
         val params = WindowManager.LayoutParams(
             size,
             size,
@@ -338,8 +346,8 @@ class OverlayCaptureService : Service() {
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = screenHeight / 3
+            x = startAtX
+            y = startAtY
         }
         layoutParams = params
 
@@ -349,7 +357,9 @@ class OverlayCaptureService : Service() {
         var startY = 0
         var moved = false
 
-        bubble.setOnTouchListener { _, event ->
+        // Taps go through performClick so a screen reader's double-tap works too.
+        bubble.setOnClickListener { onBubbleTapped() }
+        bubble.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.rawX
@@ -362,14 +372,38 @@ class OverlayCaptureService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downX
                     val dy = event.rawY - downY
-                    if (abs(dx) > TOUCH_SLOP || abs(dy) > TOUCH_SLOP) moved = true
+                    if (!moved && (abs(dx) > TOUCH_SLOP || abs(dy) > TOUCH_SLOP)) {
+                        moved = true
+                        showDismissTarget()
+                    }
                     params.x = startX + dx.roundToInt()
                     params.y = startY + dy.roundToInt()
                     windowManager.updateViewLayout(bubble, params)
+                    dismissTarget?.armed = isOverDismissTarget(event.rawX, event.rawY)
                     true
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (!moved) onBubbleTapped()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val droppedOnDismiss = moved && event.action == MotionEvent.ACTION_UP &&
+                        isOverDismissTarget(event.rawX, event.rawY)
+                    hideDismissTarget()
+                    when {
+                        droppedOnDismiss -> {
+                            Log.i(TAG, "Bubble dropped on the dismiss target: stopping overlay")
+                            Toast.makeText(this, getString(R.string.overlay_dismissed_toast), Toast.LENGTH_LONG).show()
+                            stopSelf()
+                        }
+                        moved -> {
+                            val (x, y) = BubbleGeometry.clampToScreen(params.x, params.y, size, screenWidth, screenHeight)
+                            params.x = x
+                            params.y = y
+                            runCatching { windowManager.updateViewLayout(bubble, params) }
+                            preferences.bubblePosition = x to y
+                        }
+                        event.action == MotionEvent.ACTION_UP -> {
+                            view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                            view.performClick()
+                        }
+                    }
                     true
                 }
                 else -> false
@@ -377,6 +411,49 @@ class OverlayCaptureService : Service() {
         }
 
         windowManager.addView(bubble, params)
+    }
+
+    // --- Drag the bubble onto the "✕" at the bottom of the screen to turn the overlay off ---
+
+    private fun dismissTargetSizePx(): Int = (DISMISS_TARGET_SIZE_DP * resources.displayMetrics.density).toInt()
+
+    private fun dismissTargetBottomMarginPx(): Int =
+        screenBottomInset + (DISMISS_TARGET_MARGIN_DP * resources.displayMetrics.density).toInt()
+
+    private fun isOverDismissTarget(fingerX: Float, fingerY: Float): Boolean {
+        val size = dismissTargetSizePx()
+        return BubbleGeometry.isOverDismissTarget(
+            fingerX = fingerX,
+            fingerY = fingerY,
+            targetCenterX = screenWidth / 2f,
+            targetCenterY = screenHeight - dismissTargetBottomMarginPx() - size / 2f,
+            radius = size * DISMISS_TARGET_REACH,
+        )
+    }
+
+    private fun showDismissTarget() {
+        if (dismissTarget != null) return
+        val target = DismissTargetView(this)
+        val size = dismissTargetSizePx()
+        val params = WindowManager.LayoutParams(
+            size,
+            size,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (screenWidth - size) / 2
+            y = screenHeight - dismissTargetBottomMarginPx() - size
+        }
+        runCatching { windowManager.addView(target, params) }.onSuccess { dismissTarget = target }
+    }
+
+    private fun hideDismissTarget() {
+        dismissTarget?.let { runCatching { windowManager.removeView(it) } }
+        dismissTarget = null
     }
 
     private fun overlayWindowType(): Int = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -387,6 +464,7 @@ class OverlayCaptureService : Service() {
     }
 
     private fun removeBubble() {
+        hideDismissTarget()
         bubbleView?.let { runCatching { windowManager.removeView(it) } }
         bubbleView = null
     }
@@ -421,6 +499,7 @@ class OverlayCaptureService : Service() {
                 }
             }
             bubble.state = BubbleState.ANALYZING
+            bubble.contentDescription = getString(R.string.bubble_cd_checking)
             bubble.startAnalyzingAnimation()
 
             if (capturedFile == null) {
@@ -451,20 +530,37 @@ class OverlayCaptureService : Service() {
 
             bubble.stopAnalyzingAnimation()
             lastAnalysisId = analysisId
-            bubble.resultPercent = displayPercent(result.aiLikelihood)
+            val percent = displayPercent(result.aiLikelihood)
+            bubble.resultPercent = percent
             bubble.resultColor = colorFor(result.classification)
+            bubble.resultWord = getString(wordFor(result.classification))
             bubble.state = BubbleState.RESULT
 
+            // Spoken for screen readers, and kept in the notification after the bubble resets.
+            val summary = getString(R.string.bubble_result_summary, percent, getString(labelFor(result.classification)))
+            bubble.contentDescription = getString(R.string.bubble_cd_result, summary)
+            bubble.announceForAccessibility(summary)
+            showLastCheckInNotification(summary, analysisId)
+
             delay(RESULT_DISPLAY_MS)
-            if (bubble.state == BubbleState.RESULT) bubble.state = BubbleState.IDLE
+            if (bubble.state == BubbleState.RESULT) {
+                bubble.state = BubbleState.IDLE
+                bubble.contentDescription = getString(R.string.bubble_cd_idle)
+            }
         }
     }
 
     private suspend fun showTransientError(bubble: BubbleView) {
         bubble.stopAnalyzingAnimation()
         bubble.state = BubbleState.ERROR
-        delay(RESULT_DISPLAY_MS)
-        if (bubble.state == BubbleState.ERROR) bubble.state = BubbleState.IDLE
+        val message = getString(R.string.bubble_cd_error)
+        bubble.contentDescription = message
+        bubble.announceForAccessibility(message)
+        delay(ERROR_DISPLAY_MS)
+        if (bubble.state == BubbleState.ERROR) {
+            bubble.state = BubbleState.IDLE
+            bubble.contentDescription = getString(R.string.bubble_cd_idle)
+        }
     }
 
     private suspend fun captureFrame(reader: ImageReader): File? = withContext(Dispatchers.IO) {
@@ -515,6 +611,25 @@ class OverlayCaptureService : Service() {
         Classification.LOW -> Color.parseColor("#2E7D4F")
     }
 
+    private fun wordFor(classification: Classification): Int = when (classification) {
+        Classification.HIGH -> R.string.bubble_word_high
+        Classification.UNCERTAIN -> R.string.bubble_word_uncertain
+        Classification.LOW -> R.string.bubble_word_low
+    }
+
+    private fun labelFor(classification: Classification): Int = when (classification) {
+        Classification.HIGH -> R.string.result_classification_high
+        Classification.UNCERTAIN -> R.string.result_classification_uncertain
+        Classification.LOW -> R.string.result_classification_low
+    }
+
+    /** The bubble shows a result only briefly; the notification keeps the last one, and opens it when tapped. */
+    private fun showLastCheckInNotification(summary: String, analysisId: Long) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // Shown only if notifications are allowed (Android 13+ asks; see OverlaySetupScreen).
+        runCatching { manager.notify(NOTIFICATION_ID, buildNotification(summary, analysisId)) }
+    }
+
     private fun openResult(analysisId: Long) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -523,7 +638,7 @@ class OverlayCaptureService : Service() {
         startActivity(intent)
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(lastCheck: String? = null, lastAnalysisId: Long? = null): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(
@@ -536,13 +651,34 @@ class OverlayCaptureService : Service() {
             Intent(this, OverlayCaptureService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.overlay_notification_title))
-            .setContentText(getString(R.string.overlay_notification_body))
+            .setContentText(
+                if (lastCheck != null) {
+                    getString(R.string.overlay_notification_last_check, lastCheck)
+                } else {
+                    getString(R.string.overlay_notification_body)
+                },
+            )
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .addAction(0, getString(R.string.overlay_notification_stop), stopIntent)
-            .build()
+        if (lastAnalysisId != null) {
+            val openIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                putExtra(Routes.EXTRA_OPEN_ANALYSIS_ID, lastAnalysisId)
+            }
+            builder.setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    1,
+                    openIntent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ),
+            )
+        }
+        return builder.build()
     }
 
     companion object {
@@ -553,7 +689,14 @@ class OverlayCaptureService : Service() {
         private const val CHANNEL_ID = "overlay_capture"
         private const val NOTIFICATION_ID = 4201
         private const val TOUCH_SLOP = 12
-        private const val RESULT_DISPLAY_MS = 6_000L
+        private const val RESULT_DISPLAY_MS = 10_000L
+        private const val ERROR_DISPLAY_MS = 4_000L
+        private const val BUBBLE_SIZE_DP = 56
+        private const val DISMISS_TARGET_SIZE_DP = 64
+        private const val DISMISS_TARGET_MARGIN_DP = 48
+
+        /** How close to the target's centre a drop counts, as a multiple of the target's size. */
+        private const val DISMISS_TARGET_REACH = 1.1f
         private const val FRAME_POLL_ATTEMPTS = 15
         private const val FRAME_POLL_DELAY_MS = 80L
         private const val CAPTURE_SETTLE_MS = 120L

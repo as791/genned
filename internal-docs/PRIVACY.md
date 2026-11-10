@@ -78,7 +78,7 @@ read log lines this app produced itself, never another app's or the system's.
 
 ## Screen overlay (experimental, off by default)
 
-Settings -> Experimental -> "Enable overlay bubble" is a separate, opt-in feature
+The Instagram/WhatsApp bubble (Home card or Settings -> "Set up the bubble") is a separate, opt-in feature
 covered by its own privacy rules, since it works differently from the rest of the
 app. See `internal-docs/ARCHITECTURE.md` "Screen overlay (experimental)" for the technical
 design; this section is what it means for your data specifically.
@@ -109,12 +109,16 @@ design; this section is what it means for your data specifically.
   analyzed on-device exactly like a shared image, and then handled the same way as
   any other analysis — a thumbnail + result are kept in local history, the
   full-frame capture itself is deleted once analysis completes.
-- **Foreground notification:** while the overlay is active, Android requires a
-  persistent, visible notification ("Genned overlay is active") with a Stop
-  action — this cannot be hidden or suppressed, by design, so you always know the
-  feature is running.
-- **Turning it off:** flipping the Settings switch off, or tapping "Stop" on the
-  notification, immediately stops the foreground service, removes the bubble, and
+- **Foreground notification:** while the overlay is active it runs as a foreground
+  service with a notification ("Genned overlay is active", a Stop action, and the last
+  result). On Android 13 and newer that notification is only visible if the optional
+  POST_NOTIFICATIONS permission is granted (asked from the setup screen, never
+  required); without it Android still lists the service under its active-apps view.
+- **Stored on the phone:** the bubble's last position and whether the home screen's
+  bubble card was dismissed (`AppPreferences`). Nothing about what was checked.
+- **Turning it off:** "Turn off" on the setup screen, "Stop" on the notification, or
+  dragging the bubble onto the ✕ at the bottom of the screen
+  immediately stops the foreground service, removes the bubble, and
   releases the screen-capture session. Nothing continues running in the
   background afterward.
 

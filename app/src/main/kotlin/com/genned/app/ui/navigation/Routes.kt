@@ -10,6 +10,7 @@ object Routes {
     const val SETTINGS = "settings"
     const val LICENSES = "licenses"
     const val GUIDE = "guide"
+    const val OVERLAY_SETUP = "overlay_setup"
 
     /**
      * Intent extra key used to open a specific saved analysis directly (e.g. from

@@ -38,6 +38,13 @@ class BubbleView(context: Context) : View(context) {
             invalidate()
         }
 
+    /** A short word under the number ("AI", "Unsure", "Low"), so the result doesn't rely on colour alone. */
+    var resultWord: String = ""
+        set(value) {
+            field = value
+            invalidate()
+        }
+
     private var analyzingSweepStart = 0f
     private var analyzingAnimator: ValueAnimator? = null
 
@@ -74,8 +81,15 @@ class BubbleView(context: Context) : View(context) {
             BubbleState.RESULT -> {
                 ringPaint.color = resultColor
                 canvas.drawArc(ringRect, -90f, 360f * (resultPercent / 100f), false, ringPaint)
-                textPaint.textSize = radius * 0.5f
-                canvas.drawText("$resultPercent%", cx, cy + textPaint.textSize / 3f, textPaint)
+                if (resultWord.isEmpty()) {
+                    textPaint.textSize = radius * 0.5f
+                    canvas.drawText("$resultPercent%", cx, cy + textPaint.textSize / 3f, textPaint)
+                } else {
+                    textPaint.textSize = radius * 0.46f
+                    canvas.drawText("$resultPercent%", cx, cy, textPaint)
+                    textPaint.textSize = radius * 0.3f
+                    canvas.drawText(resultWord, cx, cy + radius * 0.42f, textPaint)
+                }
             }
             BubbleState.ERROR -> {
                 ringPaint.color = Color.parseColor("#D8342A")

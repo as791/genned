@@ -9,6 +9,7 @@ import com.genned.app.data.detection.metadata.KnownGeneratorMetadataProvider
 import com.genned.app.data.detection.provenance.C2PAProvider
 import com.genned.app.data.detection.watermark.WatermarkProvider
 import com.genned.app.data.image.ImageLoader
+import com.genned.app.data.settings.AppPreferences
 import com.genned.app.data.sharing.ResultCardRenderer
 import com.genned.app.data.storage.AnalysisDatabase
 import com.genned.app.data.storage.HistoryRepository
@@ -32,6 +33,7 @@ class AppContainer(context: Context) {
     private val database by lazy { AnalysisDatabase.getInstance(appContext) }
     private val thumbnailStore by lazy { ThumbnailStore(appContext) }
 
+    val preferences by lazy { AppPreferences(appContext) }
     val imageLoader by lazy { ImageLoader(appContext) }
     private val videoFrameSampler by lazy { VideoFrameSampler(appContext) }
     val historyRepository by lazy { HistoryRepository(database.analysisDao(), thumbnailStore) }

@@ -10,6 +10,7 @@ import androidx.navigation.navArgument
 import com.genned.app.ui.analyzing.AnalyzingScreen
 import com.genned.app.ui.guide.GuideScreen
 import com.genned.app.ui.history.HistoryScreen
+import com.genned.app.ui.overlay.OverlaySetupScreen
 import com.genned.app.ui.home.HomeScreen
 import com.genned.app.ui.result.ResultScreen
 import com.genned.app.ui.settings.LicensesScreen
@@ -24,6 +25,7 @@ fun GennedNavHost(navController: NavHostController = rememberNavController()) {
                 onOpenHistory = { navController.navigate(Routes.HISTORY) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenGuide = { navController.navigate(Routes.GUIDE) },
+                onOpenOverlaySetup = { navController.navigate(Routes.OVERLAY_SETUP) },
                 onOpenHistoryItem = { id -> navController.navigate(Routes.result(id)) },
             )
         }
@@ -68,10 +70,14 @@ fun GennedNavHost(navController: NavHostController = rememberNavController()) {
                 onBack = { navController.popBackStack() },
                 onOpenLicenses = { navController.navigate(Routes.LICENSES) },
                 onOpenGuide = { navController.navigate(Routes.GUIDE) },
+                onOpenOverlaySetup = { navController.navigate(Routes.OVERLAY_SETUP) },
             )
         }
         composable(Routes.GUIDE) {
             GuideScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.OVERLAY_SETUP) {
+            OverlaySetupScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.LICENSES) {
             LicensesScreen(onBack = { navController.popBackStack() })

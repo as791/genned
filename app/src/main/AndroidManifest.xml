@@ -8,7 +8,7 @@
       Photo Picker), which grant temporary, scoped read access without any
       permission of ours. See internal-docs/PRIVACY.md.
 
-      The four permissions below back ONE feature only: the opt-in, off-by-default
+      The permissions below back ONE feature only: the opt-in, off-by-default
       "Screen Overlay" experiment (Settings -> Experimental) that lets a floating
       bubble capture and analyze whatever is currently on screen — e.g. inside
       Instagram/WhatsApp, which no share-sheet or intent-filter can reach. See
@@ -20,6 +20,11 @@
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <!--
+      Optional, asked only from the bubble's setup screen: lets Android 13+ show the bubble's
+      own notification (Stop button, last result). The bubble works without it.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
       Content Credentials (c2pa-android) needs Android 9 (API 28). The app still runs on 8.x:

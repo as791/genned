@@ -29,7 +29,7 @@ actual store listing.
 - [ ] Verify the share-sheet entry actually appears and works from Instagram, X,
       Reddit, WhatsApp, and a browser/Gallery specifically — share-sheet behavior
       can vary by source app.
-- [ ] The experimental screen-overlay feature (Settings -> Experimental) is the
+- [ ] The experimental screen-overlay feature (Home card / Settings -> "Set up the bubble") is the
       least-tested part of this codebase — no emulator/device was available during
       its development. Before shipping with it enabled: smoke-test the full
       permission chain (overlay draw, usage access, MediaProjection consent) on a

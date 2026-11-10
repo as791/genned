@@ -210,15 +210,18 @@ JitPack (`com.github.contentauth:c2pa-android`, limited to that group in
 
 ## Screen overlay (experimental)
 
-Off by default, opt-in only, toggled from Settings -> Experimental. Exists to reach
+Off by default, opt-in only, turned on from its own setup screen (`OverlaySetupScreen`,
+reached from a Home card or Settings). Exists to reach
 two cases nothing else in this app can: content Instagram/WhatsApp only let you
 forward *within* the app itself (never through Android's share sheet, so
 `ShareIntentParser` never sees it), and checking a Reel/photo while scrolling
 without manually sharing each one out.
 
 ```
-Settings toggle
-   |  (chained permission requests, one system dialog at a time)
+OverlaySetupScreen: a 3-step checklist (OverlaySetupState, unit-tested). One button
+for the next step; on return from a system screen it re-reads the grants and starts
+the following step by itself.
+   |
    v
 1. Settings.canDrawOverlays()          -- "draw over other apps"
 2. AppOpsManager usage-access check    -- "usage access"
@@ -244,10 +247,16 @@ OverlayCaptureService (foreground service, type=mediaProjection)
        share-in check (classifier + metadata + provenance signals)
           |
           v
-       bubble shows the resulting AI-likelihood percentage; tapping again
-       opens the full Result screen (MainActivity via
-       Routes.EXTRA_OPEN_ANALYSIS_ID)
+       bubble shows the percentage and a short word ("AI"/"Unsure"/"Low") for
+       10 s; tapping it then opens the full Result screen (MainActivity via
+       Routes.EXTRA_OPEN_ANALYSIS_ID). The notification keeps the last result.
 ```
+
+Bubble handling (`OverlayCaptureService.addBubble`, helpers in `BubbleGeometry`,
+unit-tested): its position is saved (`AppPreferences`) and clamped back on screen
+when restored; dragging shows a "✕" target at the bottom (`DismissTargetView`) and
+dropping the bubble on it stops the overlay; taps go through `performClick`, so a
+screen reader's double-tap works, with a spoken label per state.
 
 ### Why MediaProjection, not Accessibility Service
 

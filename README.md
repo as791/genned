@@ -94,11 +94,11 @@ classification, not motion/temporal or audio analysis, and every video result
 says so explicitly.
 
 **Screen overlay (experimental, off by default):** a floating bubble, enabled
-from Settings → Experimental, that lets you check whatever is currently on
+from the home screen or Settings ("Set up the bubble"), that lets you check whatever is currently on
 screen inside Instagram or WhatsApp — including content those apps only let
 you forward internally, which no share-sheet integration can reach. It
 captures on-screen frames via Android's `MediaProjection` API (the same
-sanctioned mechanism screen recorders use) only while the bubble is visible,
+sanctioned mechanism screen recorders use) only at the moment you tap the bubble,
 and analyzes only when you tap it — never automatically, and never reading
 the other app's actual content.
 
