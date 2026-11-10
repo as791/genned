@@ -93,6 +93,15 @@ jobs:
       - name: Unit tests (domain + app)
         run: ./gradlew testDebugUnitTest :domain:test --stacktrace
 
+      # Pictures of the main screens, rendered by ScreenshotTest during the unit tests.
+      - name: Upload screen pictures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens
+          path: app/build/screens/
+          if-no-files-found: warn
+
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
 
