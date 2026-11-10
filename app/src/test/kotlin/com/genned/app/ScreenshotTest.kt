@@ -33,6 +33,7 @@ import com.genned.app.ui.result.ResultScreen
 import com.genned.app.ui.result.ResultViewModel
 import com.genned.app.ui.theme.GennedTheme
 import com.genned.domain.evidence.EvidenceEngine
+import com.genned.domain.evidence.EvidenceWeights
 import com.genned.domain.model.AnalysisResult
 import com.genned.domain.model.DetectionSignal
 import com.genned.domain.model.SignalAvailability
@@ -93,12 +94,18 @@ class ScreenshotTest {
         }
     }
 
-    private fun available(type: SignalType, score: Float, description: String, evidence: String? = null) =
-        DetectionSignal(type, SignalAvailability.AVAILABLE, score, 1f, description, evidence)
+    private fun available(
+        type: SignalType,
+        score: Float,
+        description: String,
+        evidence: String? = null,
+        confidence: Float = 1f,
+    ) = DetectionSignal(type, SignalAvailability.AVAILABLE, score, confidence, description, evidence)
 
     private fun photoSignals(aiProbability: Float) = listOf(
         DetectionSignal.unavailable(SignalType.CONTENT_CREDENTIALS, context.getString(R.string.credentials_none)),
-        available(SignalType.EXIF_METADATA, 1f, context.getString(R.string.exif_no_camera_metadata)),
+        // Same score and confidence as ExifMetadataProvider gives "no camera details".
+        available(SignalType.EXIF_METADATA, 0.3f, context.getString(R.string.exif_no_camera_metadata), confidence = 0.3f),
         available(SignalType.GENERATOR_METADATA, 0f, context.getString(R.string.generator_none_found)),
         available(
             SignalType.AI_CLASSIFIER,
@@ -130,7 +137,9 @@ class ScreenshotTest {
     )
 
     private fun save(signals: List<DetectionSignal>, kind: MediaKind = MediaKind.PHOTO): Long = runBlocking {
-        val result: AnalysisResult = EvidenceEngine().aggregate(signals)
+        // The same LOW cut-offs the app uses: photos and screen captures 0.20, video 0.15.
+        val lowCutOff = if (kind == MediaKind.VIDEO) EvidenceWeights.LOW_THRESHOLD else EvidenceWeights.PHOTO_LOW_THRESHOLD
+        val result: AnalysisResult = EvidenceEngine(lowCutOff).aggregate(signals)
         repository.save(result, picture(), kind)
     }
 
@@ -184,14 +193,17 @@ class ScreenshotTest {
 
     @Test
     fun homeWithHistory() {
-        save(photoSignals(0.86f))
+        save(photoSignals(0.96f))
         save(videoSignals(), MediaKind.VIDEO)
         save(photoSignals(0.07f))
         shoot("02_home_with_history", context.getString(R.string.home_recent_checks)) { Home() }
     }
 
     @Test
-    fun resultLikelyAi() = result(save(photoSignals(0.86f)), "03_result_likely_ai")
+    fun resultLikelyAi() = result(save(photoSignals(0.96f)), "03_result_likely_ai")
+
+    @Test
+    fun resultUncertainHighScore() = result(save(photoSignals(0.86f)), "03b_result_uncertain_high_score")
 
     @Test
     fun resultUncertainVideo() = result(save(videoSignals(), MediaKind.VIDEO), "04_result_uncertain_video")
@@ -204,11 +216,11 @@ class ScreenshotTest {
 
     @Test
     @Config(sdk = [33], qualifiers = PHONE_NIGHT)
-    fun resultLikelyAiDark() = result(save(photoSignals(0.86f)), "07_result_likely_ai_dark")
+    fun resultLikelyAiDark() = result(save(photoSignals(0.96f)), "07_result_likely_ai_dark")
 
     @Test
     fun history() {
-        save(photoSignals(0.86f))
+        save(photoSignals(0.96f))
         save(videoSignals(), MediaKind.VIDEO)
         save(photoSignals(0.07f), MediaKind.SCREEN)
         shoot("08_history", context.getString(R.string.history_group_today)) {

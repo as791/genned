@@ -34,6 +34,7 @@ import com.genned.app.R
 import com.genned.app.ui.components.SectionHeading
 import com.genned.app.ui.components.classificationColor
 import com.genned.app.ui.components.classificationLabel
+import com.genned.domain.evidence.EvidenceWeights
 import com.genned.domain.model.Classification
 
 /** How to check something from another app, and how to read the three outcomes. */
@@ -59,6 +60,7 @@ fun GuideScreen(onBack: () -> Unit) {
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
+            Spacer(modifier = Modifier.height(8.dp))
             SectionHeading(stringResource(R.string.guide_share_heading))
             ShareSteps()
             Spacer(modifier = Modifier.height(8.dp))
@@ -78,7 +80,11 @@ fun GuideScreen(onBack: () -> Unit) {
             Outcome(
                 title = classificationLabel(Classification.UNCERTAIN),
                 color = classificationColor(Classification.UNCERTAIN),
-                body = stringResource(R.string.guide_result_uncertain),
+                body = stringResource(
+                    R.string.guide_result_uncertain,
+                    Math.round(EvidenceWeights.PHOTO_LOW_THRESHOLD * 100),
+                    Math.round(EvidenceWeights.HIGH_THRESHOLD * 100),
+                ),
             )
             Outcome(
                 title = classificationLabel(Classification.LOW),

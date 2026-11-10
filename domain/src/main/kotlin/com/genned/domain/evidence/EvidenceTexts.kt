@@ -20,16 +20,12 @@ interface EvidenceTexts {
 
     object English : EvidenceTexts {
         override val probabilistic =
-            "AI detection is probabilistic. It can produce false positives and false negatives, and newer " +
-                "generation models may not be well represented in the classifier's training data."
+            "AI detection is an estimate. It can flag real pictures and miss AI ones, especially from the newest AI tools."
         override val classifierDidNotRun =
-            "The on-device visual classifier did not run for this image; the estimate above relies on " +
-                "metadata signals only and is less reliable."
+            "The AI detector didn't run on this one, so the estimate above rests on file details only and is less reliable."
         override val noVerifiedCredentials =
-            "No verified Content Credentials (C2PA) were found, so no cryptographic provenance could be " +
-                "established."
+            "No verified signed record (Content Credentials) was found, so there's no proof of where this came from."
         override val noGeneratorMetadata =
-            "No generator metadata was found, but this does not indicate the image is authentic — social " +
-                "platforms and editing tools frequently strip metadata."
+            "No AI tool's name was found in the file. That doesn't mean it's real: social and editing apps usually remove it."
     }
 }

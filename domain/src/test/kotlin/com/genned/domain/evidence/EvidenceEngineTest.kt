@@ -188,7 +188,7 @@ class EvidenceEngineTest {
         val result = engine.aggregate(listOf(available(SignalType.AI_CLASSIFIER, score = 0.5f)))
 
         assertThat(result.limitations).isNotEmpty()
-        assertThat(result.limitations.first()).contains("probabilistic")
+        assertThat(result.limitations.first()).isEqualTo(EvidenceTexts.English.probabilistic)
     }
 
     @Test
