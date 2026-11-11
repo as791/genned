@@ -251,6 +251,8 @@ def main() -> None:
         for key, counter in counts.items():
             if len(counter) <= 60:
                 print(f"  {key}: {dict(counter.most_common())}")
+            elif len(counter) <= 500:
+                print(f"  {key}: {len(counter)} distinct values; top: {dict(counter.most_common(40))}")
             else:
                 print(f"  {key}: {len(counter)} distinct values")
 
