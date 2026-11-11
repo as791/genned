@@ -46,10 +46,11 @@ fetch() {
       # Real only: smartphone photos from LAION-Mobile (arXiv 2609.11134; a community MDS
       # mirror of ~822k images, upstream copyright, evaluation only), kept only when their
       # EXIF make is a phone brand. Measures how often real phone photos read HIGH; AUC is
-      # n/a. PER_CLASS photos.
+      # n/a. PER_CLASS photos. Drawn from the "test" shards only: training (Phase 3 train)
+      # uses the "train" shards, so these photos are never trained on.
       python tools/fetch_mds_photos.py \
         --dataset sumathiselvan/LAION-Mobile-streaming \
-        --out eval-data/phone-photos --count "$PER_CLASS"
+        --out eval-data/phone-photos --count "$PER_CLASS" --split test
       ;;
     *)
       echo "::error::unknown dataset $1"

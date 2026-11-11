@@ -1,0 +1,32 @@
+name: Tools tests
+
+# Unit tests for the offline tooling in tools/ (benchmarks, training, data fetching), plus
+# one tiny training run on synthetic images. No downloads of datasets or model weights.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/**'
+      - '.github/workflows/tools-tests.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies (CPU-only torch)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install "onnxruntime>=1.18,<2" "pillow>=10,<12" "numpy>=1.26,<3" "timm>=1.0,<2" \
+            "huggingface_hub>=0.23,<1"
+      - name: Unit tests
+        run: python -m unittest discover -s tools/tests -v
+      - name: Training loop on synthetic images (dry run)
+        run: |
+          python -u tools/adv_finetune.py --model commfor --objective aug+uat --dry-run \
+            --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run

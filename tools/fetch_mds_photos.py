@@ -11,9 +11,15 @@ Only photos whose EXIF camera make is a phone brand are kept (--make-regex), so 
 what the app sees from a phone's gallery. The counts per make are printed; no image or file
 name leaves the runner.
 
+Train / test split (--split): the shards are divided by their number, one in every
+SPLIT_MOD goes to "test" and the rest to "train". The benchmark draws from "test" and
+training from "train", so a model trained on these photos is still measured on photos it
+has never seen. The split depends only on the shard's file name, so it stays the same if
+the mirror uploads more shards.
+
 Usage:
     python tools/fetch_mds_photos.py --dataset sumathiselvan/LAION-Mobile-streaming \
-        --out eval-data/phone-photos --count 300
+        --out eval-data/phone-photos --count 300 --split test
 """
 
 from __future__ import annotations
@@ -32,6 +38,21 @@ from pathlib import Path
 PHONE_MAKES = (r"apple|samsung|google|xiaomi|redmi|huawei|honor|oneplus|oppo|vivo|realme|motorola|"
                r"lge|lg electronics|sony|nokia|hmd|asus|zte|nothing|fairphone|tecno|infinix|meizu")
 EXIF_MAKE = 271
+SPLIT_MOD = 5  # shard number % SPLIT_MOD == 0 -> test, anything else -> train
+SPLITS = ("all", "train", "test")
+
+
+def shard_number(basename: str) -> int:
+    """The number in a shard's file name (shard.00012.mds -> 12); a stable hash if it has none."""
+    digits = re.findall(r"\d+", basename)
+    return int(digits[-1]) if digits else int(hashlib.sha256(basename.encode()).hexdigest(), 16)
+
+
+def in_split(basename: str, split: str) -> bool:
+    if split == "all":
+        return True
+    is_test = shard_number(basename) % SPLIT_MOD == 0
+    return is_test == (split == "test")
 
 
 def decode_sample(data: bytes, names: list[str], encodings: list[str], sizes: list[int | None]) -> dict:
@@ -86,7 +107,8 @@ class HubShards:
         return self.fs.cat_file(f"{self.root}/{path}", start=start, end=end)
 
 
-def fetch(source, out: Path, count: int, make_regex: str, seed: int, max_tries: int) -> Counter:
+def fetch(source, out: Path, count: int, make_regex: str, seed: int, max_tries: int,
+          split: str = "all") -> Counter:
     index = json.loads(source.read("streaming/index.json"))
     listed = [s for s in index["shards"] if s.get("format") == "mds" and not s.get("compression")]
     # A partial mirror can list shards it never uploaded.
@@ -94,6 +116,12 @@ def fetch(source, out: Path, count: int, make_regex: str, seed: int, max_tries: 
     print(f"index lists {len(listed)} uncompressed MDS shards; {len(shards)} are in the repository")
     if not shards:
         sys.exit("No uncompressed MDS shards from streaming/index.json are in the repository.")
+    if split != "all":
+        shards = [s for s in shards if in_split(s["raw_data"]["basename"], split)]
+        print(f"split '{split}': {len(shards)} shards (shard number % {SPLIT_MOD} "
+              f"{'==' if split == 'test' else '!='} 0)")
+        if not shards:
+            sys.exit(f"No shards in split '{split}'.")
     population = [(shard_no, i) for shard_no, s in enumerate(shards) for i in range(s["samples"])]
     print(f"{len(shards)} shards, {len(population)} samples; sampling {count} phone photos (seed {seed})")
     rng = random.Random(seed)
@@ -153,9 +181,11 @@ def main() -> None:
     parser.add_argument("--make-regex", default=PHONE_MAKES, help="EXIF Make values to keep")
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--max-tries", type=int, default=None, help="Samples to try (default: 4x --count)")
+    parser.add_argument("--split", choices=SPLITS, default="all",
+                        help="Shards to draw from: the benchmark uses 'test', training uses 'train'")
     args = parser.parse_args()
     makes = fetch(HubShards(args.dataset), args.out, args.count, args.make_regex, args.seed,
-                  args.max_tries or 4 * args.count)
+                  args.max_tries or 4 * args.count, args.split)
     if sum(makes.values()) < args.count // 2:
         sys.exit(f"Only {sum(makes.values())} phone photos found; expected at least {args.count // 2}.")
 
