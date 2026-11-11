@@ -186,8 +186,12 @@ jobs:
               out.write(f"finished={'true' if log['finished'] else 'false'}\n")
           PY
 
+      # Both uploads below are tried a second time, five minutes later, if the artifact
+      # service is unavailable: a lost upload costs the whole job's training.
       - name: Upload checkpoint and log (weights and numbers only)
+        id: upload_checkpoint
         if: always() && steps.train.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: phase3-${{ inputs.model }}-checkpoint
@@ -213,7 +217,34 @@ jobs:
       # Also after a failed training step: the state saved at the last validation is newer
       # than the previous job's, and a later run can continue it (resume_run_id).
       - name: Upload training state (for the next job)
+        id: upload_state
         if: always() && hashFiles('runs/*-state-p3.pt') != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-${{ inputs.model }}-state
+          path: runs/*-state-p3.pt
+          overwrite: true
+          retention-days: 7
+
+      - name: Wait before uploading again
+        if: always() && (steps.upload_checkpoint.outcome == 'failure' || steps.upload_state.outcome == 'failure')
+        run: sleep 300
+
+      - name: Upload checkpoint and log again
+        if: always() && steps.upload_checkpoint.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-${{ inputs.model }}-checkpoint
+          path: |
+            runs/*-robust-p3.pt
+            runs/*-final-p3.pt
+            runs/*-train-log-p3.json
+            runs-train.log
+          overwrite: true
+
+      - name: Upload training state again
+        if: always() && steps.upload_state.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: phase3-${{ inputs.model }}-state

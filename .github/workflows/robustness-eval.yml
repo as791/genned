@@ -75,12 +75,37 @@ jobs:
             --conditions "$CONDITIONS" --preprocess avg --calibration app --model-name "app as shipped" \
             --json-dir results --scores-csv "results/scores-$DATASET.csv" > "results/$DATASET.txt"
 
+      # The numbers also go into this job's log, so they survive a failed upload.
+      - name: Print this dataset's numbers
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          cat "results/$DATASET.txt"
+          echo
+          python tools/edit_report.py results || echo "(edit report: could not run on these results)"
+          echo
+          python tools/eval_report.py results || echo "(summary report: could not run on these results)"
+
       - name: Upload results (numbers only)
+        id: upload
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: robustness-${{ matrix.dataset }}
           path: results/
+
+      - name: Wait before uploading again
+        if: always() && steps.upload.outcome == 'failure'
+        run: sleep 300
+
+      - name: Upload results again (the artifact service was unavailable)
+        if: always() && steps.upload.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: robustness-${{ matrix.dataset }}
+          path: results/
+          overwrite: true
 
   report:
     needs: evaluate
