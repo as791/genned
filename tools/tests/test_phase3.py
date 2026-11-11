@@ -216,7 +216,7 @@ class UniversalTrainingTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             folder = self.training_folder(tmp)
-            victim = sorted((folder / "ai").iterdir())[0]
+            victim = sorted((folder / "ai" / "x").iterdir())[0]
             victim.write_bytes(b"not an image at all")
             dataset = self.ft.Images([folder], 3, "commfor", train=False, seed=0)
             index = [path for path, _ in dataset.items].index(victim)
