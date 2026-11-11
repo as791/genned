@@ -2,10 +2,12 @@ name: Phase 3 train (CPU)
 
 # Fine-tunes one of the app's models for Phase 3 (internal-docs/MODEL.md: everyday-edit
 # augmentation + universal adversarial training) on GitHub's free CPU runners, no GPU.
-# Each job is capped at about 6 h, so a model that needs longer is trained in up to 3
-# chained jobs that hand over a saved training state. Measured on 4 vCPUs: Community
-# Forensics ~3 img/s, EfficientNet-B4 ~0.6 img/s. With the round 4 defaults (4,000 + 1,000
-# images per class, 2,000 phone photos, edit consistency on) Community Forensics needs 3 jobs.
+# Each job is capped at about 6 h, so a model that needs longer is trained in up to 5
+# chained jobs that hand over a saved training state. Measured on 4 vCPUs with the round 4
+# recipe (edit consistency on): Community Forensics 1.6 img/s, so its defaults (4,000 +
+# 1,000 images per class, 2,000 phone photos, 5 epochs) need 3 jobs. EfficientNet-B4 is
+# several times slower (~0.6 img/s before edit consistency): use 5 jobs and fewer epochs.
+# A run that stopped early (crash, time) can be continued with resume_run_id.
 # The checkpoint lands in artifact phase3-<model>-checkpoint; pass this run's id to
 # Ensemble build (checkpoint_run_id) to build and benchmark it.
 on:
@@ -40,9 +42,9 @@ on:
         description: Weight of the edit-consistency loss; 0 = off (on costs about 1.5x training time)
         default: '1'
       jobs:
-        description: Chained 6-hour jobs (3 for the round 4 defaults)
+        description: Chained 6-hour jobs (3 for the round 4 defaults; a job is skipped once training has finished)
         type: choice
-        options: ['1', '2', '3']
+        options: ['1', '2', '3', '4', '5']
         default: '1'
       resume_run_id:
         description: Continue the saved training state of this earlier run (same model and settings); empty = start fresh
@@ -85,7 +87,39 @@ jobs:
 
   train-3:
     needs: train-2
-    if: inputs.jobs == '3' && needs.train-2.outputs.finished != 'true'
+    if: contains(fromJSON('["3","4","5"]'), inputs.jobs) && needs.train-2.outputs.finished != 'true'
+    uses: ./.github/workflows/phase3-train-job.yml
+    secrets: inherit
+    with:
+      model: ${{ inputs.model }}
+      objective: ${{ inputs.objective }}
+      openfake_per_class: ${{ inputs.openfake_per_class }}
+      defactify_per_class: ${{ inputs.defactify_per_class }}
+      epochs: ${{ inputs.epochs }}
+      phone_real: ${{ inputs.phone_real }}
+      edit_weights: ${{ inputs.edit_weights }}
+      edit_consistency: ${{ inputs.edit_consistency }}
+      resume: true
+
+  train-4:
+    needs: train-3
+    if: contains(fromJSON('["4","5"]'), inputs.jobs) && needs.train-3.outputs.finished != 'true'
+    uses: ./.github/workflows/phase3-train-job.yml
+    secrets: inherit
+    with:
+      model: ${{ inputs.model }}
+      objective: ${{ inputs.objective }}
+      openfake_per_class: ${{ inputs.openfake_per_class }}
+      defactify_per_class: ${{ inputs.defactify_per_class }}
+      epochs: ${{ inputs.epochs }}
+      phone_real: ${{ inputs.phone_real }}
+      edit_weights: ${{ inputs.edit_weights }}
+      edit_consistency: ${{ inputs.edit_consistency }}
+      resume: true
+
+  train-5:
+    needs: train-4
+    if: contains(fromJSON('["5"]'), inputs.jobs) && needs.train-4.outputs.finished != 'true'
     uses: ./.github/workflows/phase3-train-job.yml
     secrets: inherit
     with:
