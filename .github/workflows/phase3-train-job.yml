@@ -2,7 +2,9 @@ name: Phase 3 train job
 
 # One training job (<= 6 h on a 4-vCPU runner), called by phase3-train.yml. It fetches the
 # training data, trains with a time limit, and uploads the best checkpoint plus a resumable
-# state. With `resume`, it continues the state the previous job uploaded.
+# state. With `resume`, it continues the state the previous job uploaded; with
+# `resume_run_id`, the state an earlier run uploaded (e.g. a run that crashed part-way).
+# The state is saved at every validation, so a crash costs at most one epoch.
 # Images stay on the runner; only weights and numbers are uploaded.
 on:
   workflow_call:
@@ -16,6 +18,7 @@ on:
       edit_weights: {type: string, default: ''}
       edit_consistency: {type: string, default: '0'}
       resume: {type: boolean, default: false}
+      resume_run_id: {type: string, default: ''}
     outputs:
       finished:
         description: "'true' when training reached its last step (or stopped on its own)"
@@ -25,6 +28,9 @@ jobs:
   train:
     runs-on: ubuntu-latest
     timeout-minutes: 355
+    permissions:
+      contents: read
+      actions: read   # download the training state of an earlier run (resume_run_id)
     outputs:
       finished: ${{ steps.result.outputs.finished }}
     env:
@@ -105,21 +111,31 @@ jobs:
           du -sh data/train/* data/val/*
 
       - name: Download the previous job's training state
-        if: inputs.resume
+        if: inputs.resume && inputs.resume_run_id == ''
         uses: actions/download-artifact@v4
         with:
           name: phase3-${{ inputs.model }}-state
           path: state
 
+      - name: Download an earlier run's training state
+        if: inputs.resume_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: phase3-${{ inputs.model }}-state
+          path: state
+          run-id: ${{ inputs.resume_run_id }}
+          github-token: ${{ github.token }}
+
       # 3 compute threads + 2 data workers on 4 vCPUs: image decoding and edits cost about as
       # much CPU as the model itself.
       - name: Train
+        id: train
         env:
           MODEL: ${{ inputs.model }}
           OBJECTIVE: ${{ inputs.objective }}
           EPOCHS: ${{ inputs.epochs }}
           PER_CLASS: ${{ inputs.openfake_per_class }}
-          RESUME: ${{ inputs.resume }}
+          RESUME: ${{ inputs.resume || inputs.resume_run_id != '' }}
           PHONE_REAL: ${{ inputs.phone_real }}
           EDIT_WEIGHTS: ${{ inputs.edit_weights }}
           EDIT_CONSISTENCY: ${{ inputs.edit_consistency }}
@@ -171,7 +187,7 @@ jobs:
           PY
 
       - name: Upload checkpoint and log (weights and numbers only)
-        if: always()
+        if: always() && steps.train.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: phase3-${{ inputs.model }}-checkpoint
@@ -183,7 +199,21 @@ jobs:
           overwrite: true
           if-no-files-found: warn
 
+      # A job whose training step failed keeps the earlier jobs' checkpoint artifact and
+      # uploads its log under another name.
+      - name: Upload the log of a failed training step
+        if: always() && steps.train.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-${{ inputs.model }}-failed-log
+          path: runs-train.log
+          overwrite: true
+          if-no-files-found: warn
+
+      # Also after a failed training step: the state saved at the last validation is newer
+      # than the previous job's, and a later run can continue it (resume_run_id).
       - name: Upload training state (for the next job)
+        if: always() && hashFiles('runs/*-state-p3.pt') != ''
         uses: actions/upload-artifact@v4
         with:
           name: phase3-${{ inputs.model }}-state

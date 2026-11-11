@@ -28,8 +28,11 @@ jobs:
         run: python -m unittest discover -s tools/tests -v
       - name: Training loop on synthetic images (dry run)
         run: |
+          set -o pipefail
           python -u tools/adv_finetune.py --model commfor --objective aug+uat --dry-run \
             --edit-weights grain=3,sharpen=3 --edit-consistency 1 --balance-classes \
-            --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run
+            --epochs 2 --evals-per-epoch 1 --workers 0 --save-state --out /tmp/dry-run | tee /tmp/dry-run.log
+          # The state is saved at the validation between the epochs, not only at the end.
+          grep -q "saved training state at step" /tmp/dry-run.log
           python -u tools/adv_finetune.py --model bundled --objective aug+uat --dry-run \
             --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run-bundled

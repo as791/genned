@@ -82,7 +82,7 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from evaluate import (  # noqa: E402
@@ -178,6 +178,17 @@ def freeze_batchnorm(module: nn.Module) -> None:
 
 # --------------------------------------------------------------------------- data
 
+def load_rgb(path: Path) -> Image.Image:
+    """Opens an image as RGB. A truncated file loads with its missing rows left grey."""
+    previous = ImageFile.LOAD_TRUNCATED_IMAGES
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    try:
+        with Image.open(path) as image:
+            return image.convert("RGB")
+    finally:
+        ImageFile.LOAD_TRUNCATED_IMAGES = previous
+
+
 class Images(torch.utils.data.Dataset):
     """(image tensor in [0,1] at the model's view size, label 1 = AI) from fetched folders."""
 
@@ -203,6 +214,7 @@ class Images(torch.utils.data.Dataset):
         if not self.items:
             sys.exit(f"No images under {dirs}")
         self.kind, self.train, self.edit_share, self.condition = kind, train, edit_share, condition
+        self.unreadable: set[Path] = set()
         self.edit_weights = [float((edit_weights or {}).get(e, 1.0)) for e in EDIT_CONDITIONS]
         self.with_clean = with_clean and train
 
@@ -217,9 +229,26 @@ class Images(torch.utils.data.Dataset):
     def __len__(self) -> int:
         return len(self.items)
 
+    def load(self, i: int) -> tuple[Path, Image.Image, int]:
+        """(path, RGB image, label) for item i. A file cut short (a partial download) still
+        loads; one that can't be decoded at all is replaced by the next readable image of the
+        same class, so a single bad file can't end hours of training."""
+        _, label = self.items[i]
+        for offset in range(len(self.items)):
+            path, other_label = self.items[(i + offset) % len(self.items)]
+            if other_label != label:
+                continue
+            try:
+                return path, load_rgb(path), label
+            except (OSError, ValueError, SyntaxError) as e:  # PIL's decode errors
+                if path not in self.unreadable:
+                    self.unreadable.add(path)
+                    print(f"unreadable image skipped: {path.parent.name}/{path.name} "
+                          f"({type(e).__name__}: {e})", flush=True)
+        raise OSError(f"No readable image with label {label}")
+
     def __getitem__(self, i: int):
-        path, label = self.items[i]
-        image = Image.open(path).convert("RGB")
+        path, image, label = self.load(i)
         y = torch.tensor(float(label))
         if not self.train:
             if self.condition != "original":
@@ -652,6 +681,20 @@ def main() -> None:
         log = resumed["log"]
         best_robust, best_state, step = resumed["best_score"], resumed["best_state"], resumed["step"]
     log["jobs"] = log.get("jobs", 0) + 1
+    def write_state(at_step: int, best_score: float, best_weights) -> Path:
+        """Saves everything needed to continue (--resume-state). Written to a temporary
+        file first, so a job that dies mid-write leaves the previous state intact."""
+        state_path = args.out / STATE_NAME.format(model=args.model, suffix=suffix)
+        partial = state_path.with_name(state_path.name + ".partial")
+        torch.save({"recipe": RECIPE_VERSION if phase3 else PHASE2B_RECIPE, "total_steps": total_steps,
+                    "step": at_step, "net": model.net.state_dict(), "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(), "deltas": deltas.cpu(),
+                    "rng": {"python": random.getstate(), "numpy": np.random.get_state(),
+                            "torch": torch.get_rng_state()},
+                    "log": log, "best_score": best_score, "best_state": best_weights}, partial)
+        os.replace(partial, state_path)
+        return state_path
+
     started = time.time()
     validation_seconds = 0.0
     first_step = step
@@ -801,6 +844,11 @@ def main() -> None:
                                   f" (start {base['clean_auc']:.3f} - {args.collapse_drop}) at epoch {record['epoch']}")
                 print(f"STOPPED: {log['stopped']}", flush=True)
                 break
+            if args.save_state and step < total_steps:
+                # A crash later in this job then costs at most the work since this validation.
+                log["step"], log["finished"] = step, False
+                write_state(step, best_robust, best_state)
+                print(f"  saved training state at step {step}/{total_steps}", flush=True)
             model.train()
 
     last_validated = log["evaluations"][-1]["step"] if log["evaluations"] else -1
@@ -820,13 +868,7 @@ def main() -> None:
     log["finished"] = step >= total_steps or bool(log["stopped"])
     log["step"] = step
     if args.save_state:
-        state_path = args.out / STATE_NAME.format(model=args.model, suffix=suffix)
-        torch.save({"recipe": RECIPE_VERSION if phase3 else PHASE2B_RECIPE, "total_steps": total_steps,
-                    "step": step, "net": model.net.state_dict(), "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(), "deltas": deltas.cpu(),
-                    "rng": {"python": random.getstate(), "numpy": np.random.get_state(),
-                            "torch": torch.get_rng_state()},
-                    "log": log, "best_score": best_robust, "best_state": best_state}, state_path)
+        state_path = write_state(step, best_robust, best_state)
         print(f"Saved training state {state_path} (step {step}/{total_steps}"
               f"{'' if log['finished'] else '; continue with --resume-state'})", flush=True)
 

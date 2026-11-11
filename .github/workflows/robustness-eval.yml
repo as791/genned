@@ -19,9 +19,17 @@ on:
       assets_branch:
         description: Evaluate the model files + ensemble-params.json from this branch (empty = main's app models)
         default: ''
+      report_run_id:
+        description: Only re-print the report from this earlier run's results (nothing is scored again); empty = evaluate
+        default: ''
+
+permissions:
+  contents: read
+  actions: read   # read an earlier run's results (report_run_id)
 
 jobs:
   evaluate:
+    if: inputs.report_run_id == ''
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -89,18 +97,24 @@ jobs:
           pattern: robustness-*
           merge-multiple: true
           path: results
+          run-id: ${{ inputs.report_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Report
         run: |
+          # Each part is printed even if another can't run (a run with only real photos has
+          # nothing to fit a calibration on, for example).
+          rm -f results/report.md
           {
-            python tools/edit_report.py results
+            python tools/edit_report.py results || echo "(edit report: could not run on these results)"
             echo
-            python tools/band_sweep.py results
+            python tools/band_sweep.py results || echo "(band sweep: could not run on these results)"
             echo
-            python tools/eval_report.py results
+            python tools/eval_report.py results || echo "(summary report: could not run on these results)"
             # With real phone photos in the run: test refitting the photo calibration on them.
             if [ -f results/scores-phone-photos.csv ]; then
               echo
-              python tools/calibration_refit.py results --json results/calibration-refit.json
+              python tools/calibration_refit.py results --json results/calibration-refit.json \
+                || echo "(calibration refit: not run, it needs AI images in the same run)"
             fi
           } > results/report.md
           cat results/report.md >> "$GITHUB_STEP_SUMMARY"

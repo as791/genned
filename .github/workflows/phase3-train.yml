@@ -44,6 +44,13 @@ on:
         type: choice
         options: ['1', '2', '3']
         default: '1'
+      resume_run_id:
+        description: Continue the saved training state of this earlier run (same model and settings); empty = start fresh
+        default: ''
+
+permissions:
+  contents: read
+  actions: read   # download the training state of an earlier run (resume_run_id)
 
 jobs:
   train-1:
@@ -58,6 +65,7 @@ jobs:
       phone_real: ${{ inputs.phone_real }}
       edit_weights: ${{ inputs.edit_weights }}
       edit_consistency: ${{ inputs.edit_consistency }}
+      resume_run_id: ${{ inputs.resume_run_id }}
 
   train-2:
     needs: train-1

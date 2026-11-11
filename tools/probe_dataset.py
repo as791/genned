@@ -14,10 +14,109 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
 from collections import Counter, defaultdict
+
+
+def flat_fields(row: dict) -> dict:
+    """A row's fields with one level of nesting flattened: {'json': {'label': 'x'}} -> {'json.label': 'x'}."""
+    flat = {}
+    for key, value in row.items():
+        if isinstance(value, dict):
+            flat.update({f"{key}.{inner}": v for inner, v in value.items()})
+        else:
+            flat[key] = value
+    return flat
+
+
+def spread_files(names: list[str], count: int) -> list[str]:
+    """`count` names spread evenly over the list (always the first; the last too when count > 1)."""
+    if count >= len(names):
+        return list(names)
+    if count <= 1:
+        return names[:1]
+    return [names[round(i * (len(names) - 1) / (count - 1))] for i in range(count)]
+
+
+def countable(value) -> bool:
+    return isinstance(value, (str, int, bool)) and len(str(value)) <= 64
+
+
+def scan_tar_labels(fileobj, rows: int) -> tuple[list[dict], Counter, dict[str, list[int]]]:
+    """Reads a WebDataset tar as a stream and returns (the first `rows` JSON records, member
+    counts by extension, member sizes by extension). Media members are skipped, never decoded."""
+    import tarfile
+
+    records: list[dict] = []
+    extensions: Counter = Counter()
+    sizes: dict[str, list[int]] = defaultdict(list)
+    with tarfile.open(fileobj=fileobj, mode="r|*") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            ext = os.path.splitext(member.name)[1].lower() or "(none)"
+            extensions[ext] += 1
+            sizes[ext].append(member.size)
+            if ext == ".json":
+                try:
+                    record = json.load(tar.extractfile(member))
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if isinstance(record, dict):
+                    records.append(record)
+                    if len(records) >= rows:
+                        break
+    return records, extensions, sizes
+
+
+def print_label_counts(records: list[dict], combine: int = 12) -> None:
+    """Value counts per field, and the commonest combinations of the low-cardinality fields."""
+    counts: dict[str, Counter] = defaultdict(Counter)
+    for record in records:
+        for key, value in flat_fields(record).items():
+            if countable(value):
+                counts[key][value] += 1
+    few = [key for key, counter in counts.items() if len(counter) <= 60]
+    for key in few:
+        print(f"  {key}: {dict(counts[key].most_common(60))}")
+    for key, counter in counts.items():
+        if key not in few:
+            print(f"  {key}: {len(counter)} distinct values, e.g. {[v for v, _ in counter.most_common(3)]}")
+    if 1 < len(few) <= combine:
+        combos = Counter(tuple(flat_fields(r).get(k) for k in few) for r in records)
+        print(f"  combinations of {few}:")
+        for combo, n in combos.most_common(80):
+            print(f"    {n:6d}  {combo}")
+
+
+def probe_webdataset(dataset: str, tars: list[str], rows: int, spread: int) -> None:
+    """Label counts for a WebDataset repo, read from the JSON members of a few of its tars."""
+    from huggingface_hub import HfFileSystem
+
+    chosen = spread_files(tars, spread)
+    per_tar = max(1, rows // len(chosen))
+    print(f"\n## WebDataset labels: {per_tar} records from each of {len(chosen)} of {len(tars)} tars")
+    fs = HfFileSystem()
+    everything: list[dict] = []
+    for name in chosen:
+        try:
+            with fs.open(f"datasets/{dataset}/{name}", "rb") as handle:
+                records, extensions, sizes = scan_tar_labels(handle, per_tar)
+        except Exception as e:  # noqa: BLE001 - one unreadable tar shouldn't end the probe
+            print(f"\n### {name}: unreadable ({type(e).__name__}: {e})")
+            continue
+        everything += records
+        media = {ext: f"{len(s)} files, median {sorted(s)[len(s) // 2] / 1e6:.1f} MB"
+                 for ext, s in sizes.items() if ext != ".json"}
+        print(f"\n### {name}: {len(records)} records; members read: {dict(extensions)}; {media}")
+        if records:
+            print(f"  first record: { {k: str(v)[:80] for k, v in records[0].items()} }")
+        print_label_counts(records)
+    print(f"\n### all {len(everything)} records together")
+    print_label_counts(everything)
 
 
 def search(api, query: str) -> str | None:
@@ -79,6 +178,8 @@ def main() -> None:
     parser.add_argument("dataset")
     parser.add_argument("--config", default=None)
     parser.add_argument("--rows", type=int, default=2000, help="Rows to scan per split for value counts")
+    parser.add_argument("--spread", type=int, default=8,
+                        help="WebDataset repos: how many tars, spread over the whole set, to read labels from")
     args = parser.parse_args()
 
     from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
@@ -111,6 +212,13 @@ def main() -> None:
     for name, sizes in sorted(families.items(), key=lambda kv: -sum(kv[1]))[:40]:
         print(f"  {len(sizes):5d} files {sum(sizes) / 1e9:9.1f} GB  {name}")
 
+    tars = sorted(f.rfilename for f in files if f.rfilename.endswith(".tar"))
+    if tars:
+        # WebDataset: read the labels straight from the tars. `datasets` would decode the media
+        # (which needs extra decoders), and rows at the start of one tar often share a label.
+        probe_webdataset(args.dataset, tars, args.rows, args.spread)
+        return
+
     try:
         print(f"configs: {get_dataset_config_names(args.dataset)}")
     except Exception as e:  # noqa: BLE001 - informational only
@@ -132,8 +240,8 @@ def main() -> None:
         for i, row in enumerate(ds):
             if i >= args.rows:
                 break
-            for key, value in row.items():
-                if isinstance(value, (str, int, bool)) and len(str(value)) <= 64:
+            for key, value in flat_fields(row).items():
+                if countable(value):
                     counts[key][value] += 1
             if i < 3:
                 print(f"row {i}: " + ", ".join(

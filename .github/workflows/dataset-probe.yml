@@ -14,6 +14,9 @@ on:
       rows:
         description: Rows to scan per split for value counts
         default: '2000'
+      spread:
+        description: 'WebDataset repos: how many tars (spread over the set) to read labels from'
+        default: '8'
 
 jobs:
   probe:
@@ -32,8 +35,9 @@ jobs:
           DATASET: ${{ inputs.dataset }}
           CONFIG: ${{ inputs.config }}
           ROWS: ${{ inputs.rows }}
+          SPREAD: ${{ inputs.spread }}
         run: |
           set -o pipefail
-          python tools/probe_dataset.py "$DATASET" ${CONFIG:+--config "$CONFIG"} --rows "$ROWS" \
+          python tools/probe_dataset.py "$DATASET" ${CONFIG:+--config "$CONFIG"} --rows "$ROWS" --spread "$SPREAD" \
             | tee probe.md
           { echo '```'; cat probe.md; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

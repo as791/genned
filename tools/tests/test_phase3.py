@@ -195,6 +195,39 @@ class UniversalTrainingTest(unittest.TestCase):
             evaluation = self.ft.Images([Path(tmp)], 3, "commfor", train=False, seed=0, with_clean=True)
             self.assertEqual(len(evaluation[0]), 2)
 
+    def test_a_truncated_image_still_loads(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.training_folder(tmp)
+            victim = sorted((folder / "real").iterdir())[0]
+            data = victim.read_bytes()
+            victim.write_bytes(data[: len(data) * 2 // 3])  # a download cut short
+            with self.assertRaises(OSError):
+                Image.open(victim).convert("RGB")
+            dataset = self.ft.Images([folder], 3, "commfor", train=True, seed=0, with_clean=True)
+            for i in range(len(dataset)):
+                x, x_plain, y = dataset[i]
+                self.assertEqual(x.shape, x_plain.shape)
+            self.assertEqual(dataset.unreadable, set())
+
+    def test_an_unreadable_image_is_replaced_by_one_of_the_same_class(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = self.training_folder(tmp)
+            victim = sorted((folder / "ai").iterdir())[0]
+            victim.write_bytes(b"not an image at all")
+            dataset = self.ft.Images([folder], 3, "commfor", train=False, seed=0)
+            index = [path for path, _ in dataset.items].index(victim)
+            path, image, label = dataset.load(index)
+            self.assertNotEqual(path, victim)
+            self.assertEqual(label, 1)
+            self.assertIn("ai", path.parts)
+            self.assertEqual(dataset.unreadable, {victim})
+            x, y = dataset[index]
+            self.assertEqual(float(y), 1.0)
+
     def test_a_real_only_folder_adds_real_images(self):
         import tempfile
 
