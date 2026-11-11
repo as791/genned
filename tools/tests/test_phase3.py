@@ -135,6 +135,74 @@ class UniversalTrainingTest(unittest.TestCase):
             self.assertTrue(torch.equal(x_u8.float() / 255, direct))
             self.assertEqual(y.tolist(), [dataset[i][1].item() for i in range(len(dataset))])
 
+    def test_edit_weights_parse_and_reject_bad_input(self):
+        self.assertEqual(self.ft.parse_edit_weights(""), {})
+        self.assertEqual(self.ft.parse_edit_weights("grain=3, sharpen=2.5"), {"grain": 3.0, "sharpen": 2.5})
+        for bad in ("glitter=2", "grain=0", "grain=-1", "grain"):
+            with self.assertRaises(ValueError):
+                self.ft.parse_edit_weights(bad)
+
+    def test_balanced_weights_give_each_class_the_same_total(self):
+        labels = [1] * 3 + [0] * 9  # e.g. extra real phone photos
+        weights = self.ft.balanced_sample_weights(labels)
+        ai = sum(w for w, label in zip(weights, labels) if label == 1)
+        real = sum(w for w, label in zip(weights, labels) if label == 0)
+        self.assertAlmostEqual(ai, real)
+        with self.assertRaises(ValueError):
+            self.ft.balanced_sample_weights([0, 0, 0])
+
+    def training_folder(self, tmp: str, with_ai: bool = True) -> Path:
+        root = Path(tmp)
+        for sub, seed in ((("ai/x", 1),) if with_ai else ()) + (("real", 2),):
+            (root / sub).mkdir(parents=True)
+            for i in range(3):
+                sample_image(seed * 10 + i, (300 + 10 * i, 260)).save(root / sub / f"{i}.png")
+        return root
+
+    def test_weighted_edits_are_drawn_more_often(self):
+        import tempfile
+
+        drawn = []
+        original = self.ft.degrade
+        self.ft.degrade = lambda image, condition, seed=0: drawn.append(condition) or image
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                dataset = self.ft.Images([self.training_folder(tmp)], 3, "commfor", train=True, seed=0,
+                                         edit_share=1.0, edit_weights={"grain": 1000.0})
+                for _ in range(20):
+                    for i in range(len(dataset)):
+                        dataset[i]
+        finally:
+            self.ft.degrade = original
+        self.assertEqual(len(drawn), 120)
+        self.assertGreater(drawn.count("grain"), 100)
+
+    def test_clean_partner_is_the_same_view_without_the_edit(self):
+        import tempfile
+
+        torch = self.torch
+        with tempfile.TemporaryDirectory() as tmp:
+            dataset = self.ft.Images([self.training_folder(tmp)], 3, "commfor", train=True, seed=0,
+                                     edit_share=1.0, edit_weights={"noise8": 1000.0}, with_clean=True)
+            x, x_plain, y = dataset[0]
+            self.assertEqual(x.shape, x_plain.shape)
+            self.assertIn(float(y), (0.0, 1.0))
+            # Same picture, flip and view: noise of sigma 8/255 moves pixels a little, not a lot.
+            difference = (x - x_plain).abs().mean().item()
+            self.assertGreater(difference, 0.0)
+            self.assertLess(difference, 0.06)
+            # Evaluation items stay (x, y).
+            evaluation = self.ft.Images([Path(tmp)], 3, "commfor", train=False, seed=0, with_clean=True)
+            self.assertEqual(len(evaluation[0]), 2)
+
+    def test_a_real_only_folder_adds_real_images(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as both, tempfile.TemporaryDirectory() as phone:
+            dataset = self.ft.Images([self.training_folder(both), self.training_folder(phone, with_ai=False)],
+                                     3, "commfor", train=True, seed=0)
+            self.assertEqual(sorted(dataset.labels()), [0] * 6 + [1] * 3)
+
     def test_split_halves_is_stratified(self):
         torch = self.torch
         y = torch.tensor([1.0] * 6 + [0.0] * 6)  # all AI first, as the validation set is listed

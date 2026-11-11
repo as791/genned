@@ -11,11 +11,11 @@ Only photos whose EXIF camera make is a phone brand are kept (--make-regex), so 
 what the app sees from a phone's gallery. The counts per make are printed; no image or file
 name leaves the runner.
 
-Train / test split (--split): the shards are divided by their number, one in every
-SPLIT_MOD goes to "test" and the rest to "train". The benchmark draws from "test" and
-training from "train", so a model trained on these photos is still measured on photos it
-has never seen. The split depends only on the shard's file name, so it stays the same if
-the mirror uploads more shards.
+Train / validation / test split (--split): the shards are divided by their number modulo
+SPLIT_MOD: 0 is "test" (the benchmark), 1 is "val" (model selection during training) and
+the rest are "train". A model trained on these photos is therefore still measured on
+photos it has never seen. The split depends only on the shard's file name, so it stays
+the same if the mirror uploads more shards.
 
 Usage:
     python tools/fetch_mds_photos.py --dataset sumathiselvan/LAION-Mobile-streaming \
@@ -38,8 +38,8 @@ from pathlib import Path
 PHONE_MAKES = (r"apple|samsung|google|xiaomi|redmi|huawei|honor|oneplus|oppo|vivo|realme|motorola|"
                r"lge|lg electronics|sony|nokia|hmd|asus|zte|nothing|fairphone|tecno|infinix|meizu")
 EXIF_MAKE = 271
-SPLIT_MOD = 5  # shard number % SPLIT_MOD == 0 -> test, anything else -> train
-SPLITS = ("all", "train", "test")
+SPLIT_MOD = 5  # shard number % SPLIT_MOD: 0 -> test, 1 -> val, anything else -> train
+SPLITS = ("all", "train", "val", "test")
 
 
 def shard_number(basename: str) -> int:
@@ -51,8 +51,8 @@ def shard_number(basename: str) -> int:
 def in_split(basename: str, split: str) -> bool:
     if split == "all":
         return True
-    is_test = shard_number(basename) % SPLIT_MOD == 0
-    return is_test == (split == "test")
+    residue = shard_number(basename) % SPLIT_MOD
+    return {0: "test", 1: "val"}.get(residue, "train") == split
 
 
 def decode_sample(data: bytes, names: list[str], encodings: list[str], sizes: list[int | None]) -> dict:
@@ -118,8 +118,7 @@ def fetch(source, out: Path, count: int, make_regex: str, seed: int, max_tries: 
         sys.exit("No uncompressed MDS shards from streaming/index.json are in the repository.")
     if split != "all":
         shards = [s for s in shards if in_split(s["raw_data"]["basename"], split)]
-        print(f"split '{split}': {len(shards)} shards (shard number % {SPLIT_MOD} "
-              f"{'==' if split == 'test' else '!='} 0)")
+        print(f"split '{split}': {len(shards)} shards (by shard number % {SPLIT_MOD})")
         if not shards:
             sys.exit(f"No shards in split '{split}'.")
     population = [(shard_no, i) for shard_no, s in enumerate(shards) for i in range(s["samples"])]
@@ -182,7 +181,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--max-tries", type=int, default=None, help="Samples to try (default: 4x --count)")
     parser.add_argument("--split", choices=SPLITS, default="all",
-                        help="Shards to draw from: the benchmark uses 'test', training uses 'train'")
+                        help="Shards to draw from: the benchmark uses 'test', training 'train' and 'val'")
     args = parser.parse_args()
     makes = fetch(HubShards(args.dataset), args.out, args.count, args.make_regex, args.seed,
                   args.max_tries or 4 * args.count, args.split)

@@ -29,4 +29,7 @@ jobs:
       - name: Training loop on synthetic images (dry run)
         run: |
           python -u tools/adv_finetune.py --model commfor --objective aug+uat --dry-run \
+            --edit-weights grain=3,sharpen=3 --edit-consistency 1 --balance-classes \
             --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run
+          python -u tools/adv_finetune.py --model bundled --objective aug+uat --dry-run \
+            --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run-bundled

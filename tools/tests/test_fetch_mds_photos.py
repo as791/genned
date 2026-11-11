@@ -93,10 +93,12 @@ class SplitTest(unittest.TestCase):
     def test_train_and_test_shards_never_overlap_and_cover_everything(self):
         names = [f"shard.{n:05d}.mds" for n in range(40)]
         train = {n for n in names if mds.in_split(n, "train")}
+        val = {n for n in names if mds.in_split(n, "val")}
         test = {n for n in names if mds.in_split(n, "test")}
-        self.assertFalse(train & test)
-        self.assertEqual(train | test, set(names))
+        self.assertFalse(train & test or train & val or val & test)
+        self.assertEqual(train | val | test, set(names))
         self.assertEqual(len(test), 40 // mds.SPLIT_MOD)
+        self.assertEqual(len(val), 40 // mds.SPLIT_MOD)
         self.assertTrue(all(mds.in_split(n, "all") for n in names))
 
     def test_fetch_draws_only_from_its_split(self):
@@ -104,7 +106,8 @@ class SplitTest(unittest.TestCase):
         test = shards_fetched(source, "test")
         train = shards_fetched(source, "train")
         self.assertEqual(test, {0, 5, 10})
-        self.assertEqual(train, set(range(12)) - {0, 5, 10})
+        self.assertEqual(shards_fetched(source, "val"), {1, 6, 11})
+        self.assertEqual(train, {2, 3, 4, 7, 8, 9})
         self.assertEqual(shards_fetched(source, "all"), set(range(12)))
 
     def test_split_survives_shards_added_to_the_mirror(self):

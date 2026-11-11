@@ -12,6 +12,14 @@ Phase 3 objectives (internal-docs/MODEL.md "Phase 3"):
             trains the model on clean + perturbed images and gives the perturbations'
             gradient, which they ascend. About the cost of training on 2x the images.
   aug+uat   both (the Phase 3 default in notebooks/robust_finetune_kaggle.ipynb)
+Round 4 options for the aug objectives (internal-docs/MODEL.md "Accuracy round 4"):
+  --edit-weights grain=3,sharpen=3   draw those edits more often than the others (the
+            edits that still fail a gate get more practice);
+  --edit-consistency W   every image is also seen unedited, and W x KL pulls the edited
+            image's score to the unedited one's, so an edit moves the score less. Costs
+            one more forward pass per image;
+  --balance-classes   draw AI and real images equally often, whatever their counts. Needed
+            when a real-only folder (real phone photos) is added to --train-data.
 Validation for these: clean AUC/accuracy, AUC under a fixed set of edits, and robust
 accuracy against a FRESH universal perturbation fit on one half of the validation images
 against the current model and scored on the other half (--eps). Selection: the eligible
@@ -97,7 +105,7 @@ import torch.nn.functional as F  # noqa: E402
 
 MEAN_T = torch.tensor(MEAN).view(1, 3, 1, 1)
 STD_T = torch.tensor(STD).view(1, 3, 1, 1)
-RECIPE_VERSION = "phase3-v3"  # checked by notebooks/robust_finetune_kaggle.ipynb
+RECIPE_VERSION = "phase3-v4"  # checked by notebooks/robust_finetune_kaggle.ipynb
 PHASE2B_RECIPE = "adv-finetune-v3"  # checked by notebooks/adversarial_finetune.ipynb (Phase 2b)
 PHASE3_OBJECTIVES = ("aug", "uat", "aug+uat")
 # Edits the validation AUC is measured under (a spread of the everyday-edit families).
@@ -174,10 +182,14 @@ class Images(torch.utils.data.Dataset):
     """(image tensor in [0,1] at the model's view size, label 1 = AI) from fetched folders."""
 
     def __init__(self, dirs: list[Path], per_class: int, kind: str, train: bool, seed: int,
-                 edit_share: float = 0.0, condition: str = "original", items: list | None = None):
+                 edit_share: float = 0.0, condition: str = "original", items: list | None = None,
+                 edit_weights: dict[str, float] | None = None, with_clean: bool = False):
         """train: random condition per image (an everyday edit with probability edit_share,
         else original / jpeg75 / social) and random flips/views. Not train: the fixed
-        `condition`, seeded per image so every evaluation sees the same pixels."""
+        `condition`, seeded per image so every evaluation sees the same pixels.
+        edit_weights: how often each everyday edit is drawn, relative to the others (default 1).
+        with_clean (train only): also return the same image, flip and view without any
+        condition, for the edit-consistency loss; items are then (x, x_clean, label)."""
         self.items: list[tuple[Path, int]] = []
         if items is not None:
             self.items = list(items)
@@ -191,6 +203,16 @@ class Images(torch.utils.data.Dataset):
         if not self.items:
             sys.exit(f"No images under {dirs}")
         self.kind, self.train, self.edit_share, self.condition = kind, train, edit_share, condition
+        self.edit_weights = [float((edit_weights or {}).get(e, 1.0)) for e in EDIT_CONDITIONS]
+        self.with_clean = with_clean and train
+
+    def labels(self) -> list[int]:
+        return [label for _, label in self.items]
+
+    def tensor(self, image: Image.Image, mode: str) -> torch.Tensor:
+        image = app_normalize(image)
+        view = commfor_view(image) if self.kind == "commfor" else to_model_input(image, mode)
+        return torch.from_numpy(np.asarray(view, dtype=np.float32) / 255.0).permute(2, 0, 1)
 
     def __len__(self) -> int:
         return len(self.items)
@@ -198,23 +220,47 @@ class Images(torch.utils.data.Dataset):
     def __getitem__(self, i: int):
         path, label = self.items[i]
         image = Image.open(path).convert("RGB")
-        if self.train:
-            pool = EDIT_CONDITIONS if random.random() < self.edit_share else CONDITIONS
-            image = degrade(image, random.choice(pool), random.getrandbits(32))
-            if random.random() < 0.5:
-                image = image.transpose(Image.FLIP_LEFT_RIGHT)
-        elif self.condition != "original":
-            image = degrade(image, self.condition, condition_seed(path, self.condition))
-        image = app_normalize(image)
-        if self.kind == "commfor":
-            view = commfor_view(image)
+        y = torch.tensor(float(label))
+        if not self.train:
+            if self.condition != "original":
+                image = degrade(image, self.condition, condition_seed(path, self.condition))
+            return self.tensor(image, "squash"), y
+        if random.random() < 0.5:
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
+        if random.random() < self.edit_share:
+            condition = random.choices(EDIT_CONDITIONS, weights=self.edit_weights)[0]
         else:
-            view = to_model_input(image, random.choice(("squash", "center_crop")) if self.train else "squash")
-        x = torch.from_numpy(np.asarray(view, dtype=np.float32) / 255.0).permute(2, 0, 1)
-        return x, torch.tensor(float(label))
+            condition = random.choice(CONDITIONS)
+        mode = random.choice(("squash", "center_crop"))
+        x = self.tensor(degrade(image, condition, random.getrandbits(32)), mode)
+        if self.with_clean:
+            return x, self.tensor(image, mode), y
+        return x, y
 
 
 # --------------------------------------------------------------------------- training
+
+def parse_edit_weights(text: str) -> dict[str, float]:
+    """'grain=3,sharpen=3' -> {'grain': 3.0, 'sharpen': 3.0}; unknown edits or weights <= 0 are errors."""
+    weights: dict[str, float] = {}
+    for part in filter(None, (p.strip() for p in text.split(","))):
+        name, _, value = part.partition("=")
+        if name not in EDIT_CONDITIONS:
+            raise ValueError(f"unknown edit '{name}' (known: {', '.join(EDIT_CONDITIONS)})")
+        weight = float(value)
+        if weight <= 0:
+            raise ValueError(f"edit weight for '{name}' must be > 0")
+        weights[name] = weight
+    return weights
+
+
+def balanced_sample_weights(labels: list[int]) -> list[float]:
+    """Per-image sampling weights that make AI and real images equally likely to be drawn."""
+    counts = {label: labels.count(label) for label in set(labels)}
+    if len(counts) < 2:
+        raise ValueError("--balance-classes needs both AI and real training images")
+    return [1.0 / counts[label] for label in labels]
+
 
 def binary_kl(p_logit: torch.Tensor, q_logit: torch.Tensor) -> torch.Tensor:
     """Per-sample KL(Bernoulli(sigmoid p) || Bernoulli(sigmoid q)), from logits (stable)."""
@@ -415,6 +461,12 @@ def main() -> None:
                              "or PGD-AT (CE on attacked images)")
     parser.add_argument("--edit-share", type=float, default=0.6,
                         help="aug objectives: share of training images given a random everyday edit")
+    parser.add_argument("--edit-weights", default="",
+                        help="aug objectives: edits drawn more (or less) often, e.g. grain=3,sharpen=3 (default 1 each)")
+    parser.add_argument("--edit-consistency", type=float, default=0.0,
+                        help="aug objectives: weight of KL(unedited || edited) on each image's two views (0 = off)")
+    parser.add_argument("--balance-classes", action="store_true",
+                        help="Draw AI and real training images equally often (for real-only extra folders)")
     parser.add_argument("--uat-weight", type=float, default=1.0, help="uat objectives: weight of the perturbed loss")
     parser.add_argument("--uat-step", type=float, default=0.25,
                         help="uat objectives: universal perturbation step, as a fraction of the current eps")
@@ -488,16 +540,37 @@ def main() -> None:
 
     net = build_commfor(args.dry_run) if args.model == "commfor" else build_bundled(args.dry_run)
     model = Detector(net, args.model).to(device)
+    try:
+        edit_weights = parse_edit_weights(args.edit_weights)
+    except ValueError as e:
+        parser.error(f"--edit-weights: {e}")
+    consistency = args.edit_consistency if uses_aug else 0.0
+    if (edit_weights or args.edit_consistency) and not uses_aug:
+        parser.error("--edit-weights / --edit-consistency need an aug objective")
     train_set = Images(args.train_data, args.per_class, args.model, train=True, seed=args.seed,
-                       edit_share=args.edit_share if uses_aug else 0.0)
+                       edit_share=args.edit_share if uses_aug else 0.0, edit_weights=edit_weights,
+                       with_clean=consistency > 0)
     val_set = Images(args.val_data, args.val_per_class, args.model, train=False, seed=args.seed + 1)
+    train_labels = train_set.labels()
+    class_counts = {"ai": sum(train_labels), "real": len(train_labels) - sum(train_labels)}
+    sampler = None
+    if args.balance_classes:
+        try:
+            sampler = torch.utils.data.WeightedRandomSampler(
+                balanced_sample_weights(train_labels), num_samples=len(train_labels), replacement=True)
+        except ValueError as e:
+            parser.error(str(e))
     train_loader = torch.utils.data.DataLoader(
-        train_set, batch_size=batch, shuffle=True, drop_last=True, num_workers=args.workers, pin_memory=amp,
+        train_set, batch_size=batch, shuffle=sampler is None, sampler=sampler, drop_last=True,
+        num_workers=args.workers, pin_memory=amp,
         persistent_workers=args.workers > 0, prefetch_factor=4 if args.workers > 0 else None)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch, num_workers=args.workers)
     steps_per_epoch = len(train_loader)
     total_steps = max(1, epochs * steps_per_epoch)
     eval_every = max(1, steps_per_epoch // max(1, args.evals_per_epoch))
+    print(f"training images: {class_counts['ai']} AI + {class_counts['real']} real"
+          f"{' (drawn equally often)' if sampler is not None else ''}; edit weights {edit_weights or 'even'}; "
+          f"edit consistency {consistency:g}", flush=True)
     print(f"{args.model}: {len(train_set)} training / {len(val_set)} validation images, device {device}, "
           f"{args.objective}, eps {args.eps}/255 (ramp {args.eps_ramp_epochs} ep), beta {args.beta} "
           f"(ramp {args.beta_ramp_epochs} ep), lr {lr}, {epochs} epochs, batch {batch}", flush=True)
@@ -564,6 +637,8 @@ def main() -> None:
         deltas = resumed["deltas"].to(device)
     log = {"recipe": RECIPE_VERSION if phase3 else PHASE2B_RECIPE, "model": args.model,
            "objective": args.objective, "beta": args.beta, "edit_share": args.edit_share if uses_aug else 0.0,
+           "edit_weights": edit_weights, "edit_consistency": consistency,
+           "balance_classes": args.balance_classes, "class_counts": class_counts,
            "uat_weight": args.uat_weight if uses_uat else None, "uat_step": args.uat_step if uses_uat else None,
            "eps_255": args.eps,
            "beta_ramp_epochs": args.beta_ramp_epochs, "eps_ramp_epochs": args.eps_ramp_epochs,
@@ -581,11 +656,14 @@ def main() -> None:
     validation_seconds = 0.0
     first_step = step
     timed_out = False
-    sums = {"loss": 0.0, "clean": 0.0, "robust": 0.0, "batch_robust_acc": 0.0}
+    sums = {"loss": 0.0, "clean": 0.0, "robust": 0.0, "consistency": 0.0, "batch_robust_acc": 0.0}
     since = 0
 
     while step < total_steps and not log["stopped"] and not timed_out:
-        for x, y in train_loader:
+        for batch_items in train_loader:
+            # (x, y), or (x, x_unedited, y) with --edit-consistency
+            x, y = batch_items[0], batch_items[-1]
+            x_plain = batch_items[1] if len(batch_items) == 3 else None
             if step >= total_steps:
                 break
             if args.max_hours and time.time() - started > args.max_hours * 3600:
@@ -594,25 +672,37 @@ def main() -> None:
                 break
             epoch = step // steps_per_epoch + 1
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+            if x_plain is not None:
+                x_plain = x_plain.to(device, non_blocking=True)
+            consistency_loss = torch.zeros((), device=device)
             cur_eps = args.eps / 255 * ramp(step, args.eps_ramp_epochs)
             cur_beta = args.beta * ramp(step, args.beta_ramp_epochs)
             if phase3:
                 model.train()
                 freeze_batchnorm(model)
                 d = deltas.clone().requires_grad_(True)
+                parts = [x]
                 if uses_uat:
                     per_image = d[y.long()]
-                    adv = (x + torch.cat([jitter(per_image[j : j + 1]) for j in range(len(x))])).clamp(0, 1)
-                    batch_in = torch.cat([x, adv])
-                else:
-                    batch_in = x
+                    parts.append((x + torch.cat([jitter(per_image[j : j + 1]) for j in range(len(x))])).clamp(0, 1))
+                if x_plain is not None:
+                    parts.append(x_plain)
                 with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-                    logits = model(batch_in).float()
-                clean_logit = logits[: len(x)]
-                adv_logit = logits[len(x):] if uses_uat else clean_logit
+                    logits = model(torch.cat(parts)).float()
+                n = len(x)
+                clean_logit = logits[:n]  # the (possibly edited) training view
+                adv_logit = logits[n : 2 * n] if uses_uat else clean_logit
                 clean_loss = F.binary_cross_entropy_with_logits(clean_logit, y)
                 robust_loss = F.binary_cross_entropy_with_logits(adv_logit, y) if uses_uat else clean_loss
                 loss = clean_loss + (args.uat_weight * robust_loss if uses_uat else 0.0)
+                if x_plain is not None:
+                    plain_logit = logits[-n:]
+                    # The unedited view is trained on its label too, and is the fixed target the
+                    # edited view's score is pulled to (no gradient through the target).
+                    clean_loss = 0.5 * (clean_loss + F.binary_cross_entropy_with_logits(plain_logit, y))
+                    consistency_loss = binary_kl(plain_logit.detach(), clean_logit).mean()
+                    loss = clean_loss + (args.uat_weight * robust_loss if uses_uat else 0.0) \
+                        + consistency * consistency_loss
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
                 if uses_uat and d.grad is not None and torch.isfinite(d.grad).all() and cur_eps > 0:
@@ -659,6 +749,7 @@ def main() -> None:
             sums["loss"] += loss.item()
             sums["clean"] += clean_loss.item()
             sums["robust"] += robust_loss.item()
+            sums["consistency"] += float(consistency_loss)
             sums["batch_robust_acc"] += ((adv_logit.detach() > 0).float() == y).float().mean().item()
             if step == first_step + 1:
                 print(f"first training step done after {time.time() - started:.0f}s "
@@ -669,7 +760,8 @@ def main() -> None:
                 rate = (step - first_step) * batch / max(1e-6, elapsed)
                 eta = (total_steps - step) * batch / max(1e-6, rate)
                 print(f"epoch {epoch} step {step}/{total_steps} loss {avg['loss']:.4f} (clean {avg['clean']:.4f}, "
-                      f"robust {avg['robust']:.4f}, in-batch robust acc {avg['batch_robust_acc']:.1%}) "
+                      f"robust {avg['robust']:.4f}, consistency {avg['consistency']:.4f}, "
+                      f"in-batch robust acc {avg['batch_robust_acc']:.1%}) "
                       f"eps {cur_eps * 255:.2f}/255 beta {cur_beta:.2f} lr {scheduler.get_last_lr()[0]:.2e} "
                       f"- {rate:.1f} img/s, training ETA {eta / 60:.0f} min ({time.time() - started:.0f}s)",
                       flush=True)

@@ -4,7 +4,8 @@ name: Phase 3 train (CPU)
 # augmentation + universal adversarial training) on GitHub's free CPU runners, no GPU.
 # Each job is capped at about 6 h, so a model that needs longer is trained in up to 3
 # chained jobs that hand over a saved training state. Measured on 4 vCPUs: Community
-# Forensics ~3 img/s (one job is enough), EfficientNet-B4 ~0.6 img/s (use 3 jobs).
+# Forensics ~3 img/s, EfficientNet-B4 ~0.6 img/s. With the round 4 defaults (4,000 + 1,000
+# images per class, 2,000 phone photos, edit consistency on) Community Forensics needs 3 jobs.
 # The checkpoint lands in artifact phase3-<model>-checkpoint; pass this run's id to
 # Ensemble build (checkpoint_run_id) to build and benchmark it.
 on:
@@ -22,15 +23,24 @@ on:
         default: aug+uat
       openfake_per_class:
         description: Training images per class from OpenFake train (open-weights generators only)
-        default: '2500'
+        default: '4000'
       defactify_per_class:
         description: Training images per class from Defactify train
         default: '1000'
       epochs:
         description: Epochs
         default: '5'
+      phone_real:
+        description: Real phone photos (LAION-Mobile train shards) added as real examples; 0 = none
+        default: '2000'
+      edit_weights:
+        description: Everyday edits drawn more often (tools/adv_finetune.py --edit-weights); empty = even
+        default: 'grain=3,sharpen=3,screenshot=2,chain_shot=2'
+      edit_consistency:
+        description: Weight of the edit-consistency loss; 0 = off (on costs about 1.5x training time)
+        default: '1'
       jobs:
-        description: Chained 6-hour jobs (commfor 1; bundled 3)
+        description: Chained 6-hour jobs (3 for the round 4 defaults)
         type: choice
         options: ['1', '2', '3']
         default: '1'
@@ -45,6 +55,9 @@ jobs:
       openfake_per_class: ${{ inputs.openfake_per_class }}
       defactify_per_class: ${{ inputs.defactify_per_class }}
       epochs: ${{ inputs.epochs }}
+      phone_real: ${{ inputs.phone_real }}
+      edit_weights: ${{ inputs.edit_weights }}
+      edit_consistency: ${{ inputs.edit_consistency }}
 
   train-2:
     needs: train-1
@@ -57,6 +70,9 @@ jobs:
       openfake_per_class: ${{ inputs.openfake_per_class }}
       defactify_per_class: ${{ inputs.defactify_per_class }}
       epochs: ${{ inputs.epochs }}
+      phone_real: ${{ inputs.phone_real }}
+      edit_weights: ${{ inputs.edit_weights }}
+      edit_consistency: ${{ inputs.edit_consistency }}
       resume: true
 
   train-3:
@@ -70,4 +86,7 @@ jobs:
       openfake_per_class: ${{ inputs.openfake_per_class }}
       defactify_per_class: ${{ inputs.defactify_per_class }}
       epochs: ${{ inputs.epochs }}
+      phone_real: ${{ inputs.phone_real }}
+      edit_weights: ${{ inputs.edit_weights }}
+      edit_consistency: ${{ inputs.edit_consistency }}
       resume: true

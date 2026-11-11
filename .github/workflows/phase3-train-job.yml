@@ -12,6 +12,9 @@ on:
       openfake_per_class: {type: string, required: true}
       defactify_per_class: {type: string, required: true}
       epochs: {type: string, required: true}
+      phone_real: {type: string, default: '0'}
+      edit_weights: {type: string, default: ''}
+      edit_consistency: {type: string, default: '0'}
       resume: {type: boolean, default: false}
     outputs:
       finished:
@@ -29,6 +32,9 @@ jobs:
       HF_HUB_DOWNLOAD_TIMEOUT: '120'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Note the job's start time
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
 
       # The runner image ships ~30 GB of SDKs this job doesn't need; the training images do.
       - name: Free disk space
@@ -53,6 +59,7 @@ jobs:
         env:
           OPENFAKE_PER_CLASS: ${{ inputs.openfake_per_class }}
           DEFACTIFY_PER_CLASS: ${{ inputs.defactify_per_class }}
+          PHONE_REAL: ${{ inputs.phone_real }}
         run: |
           PROPRIETARY="midjourney|dall-?e|gpt-image|imagen|ideogram|grok|recraft|seedream|nano-banana|mystic|veo|sora|kling|firefly|runway|luma|hailuo|ernie|seededit|gemini"
           fetch() {
@@ -65,7 +72,7 @@ jobs:
           fetch --dataset ComplexDataLab/OpenFake --config core --split train --strict-split \
             --out data/train/openfake --per-class "$OPENFAKE_PER_CLASS" \
             --label-col label --ai-values fake --real-values real --generator-col model \
-            --exclude-generators "$PROPRIETARY" --max-per-generator 300 --max-scan 200000
+            --exclude-generators "$PROPRIETARY" --max-per-generator 600 --max-scan 200000
           fetch --dataset Rajarshi-Roy-research/Defactify_Image_Dataset --split train --strict-split \
             --out data/train/defactify --per-class "$DEFACTIFY_PER_CLASS" --max-scan 25000 \
             --label-col Label_A --ai-values 1 --real-values 0 \
@@ -75,6 +82,22 @@ jobs:
             --out data/val/openfake --per-class 150 \
             --label-col label --ai-values fake --real-values real --generator-col model \
             --exclude-generators "$PROPRIETARY" --max-per-generator 15 --max-scan 20000
+          # Real phone photos as extra real examples (LAION-Mobile; photos stay on the runner).
+          # Training uses the "train" shards and model selection the "val" shards; the
+          # benchmark's photos come from the "test" shards and are never fetched here.
+          if [ "${PHONE_REAL:-0}" -gt 0 ]; then
+            pip install -q "huggingface_hub>=0.23,<1"
+            for attempt in 1 2 3; do
+              rm -rf data/train/phone data/val/phone
+              python -u tools/fetch_mds_photos.py --dataset sumathiselvan/LAION-Mobile-streaming \
+                  --out data/train/phone --count "$PHONE_REAL" --split train --seed 4321 \
+                && python -u tools/fetch_mds_photos.py --dataset sumathiselvan/LAION-Mobile-streaming \
+                  --out data/val/phone --count 150 --split val --seed 8765 \
+                && break
+              echo "Phone photo fetch failed (attempt $attempt); retrying in 30 s"; sleep 30
+              [ "$attempt" = 3 ] && { echo "::error::Could not fetch the phone photos"; exit 1; }
+            done
+          fi
           # Fail loudly if a proprietary generator's images still reached the training data.
           if ls -d data/*/*/ai/*/ | grep -i -E "$PROPRIETARY"; then
             echo "::error::Proprietary-generator images found in the training data"; exit 1
@@ -97,15 +120,30 @@ jobs:
           EPOCHS: ${{ inputs.epochs }}
           PER_CLASS: ${{ inputs.openfake_per_class }}
           RESUME: ${{ inputs.resume }}
+          PHONE_REAL: ${{ inputs.phone_real }}
+          EDIT_WEIGHTS: ${{ inputs.edit_weights }}
+          EDIT_CONSISTENCY: ${{ inputs.edit_consistency }}
         run: |
           set -o pipefail
           extra=()
+          train_data=(data/train/openfake data/train/defactify)
+          val_data=(data/val/openfake)
           [ "$RESUME" = "true" ] && extra+=(--resume-state "state/$MODEL-state-p3.pt")
           [ "$MODEL" = "bundled" ] && extra+=(--batch-size 12)
+          if [ "${PHONE_REAL:-0}" -gt 0 ]; then
+            # A real-only folder: draw AI and real equally often so it doesn't tilt the model.
+            train_data+=(data/train/phone); val_data+=(data/val/phone); extra+=(--balance-classes)
+          fi
+          [ -n "$EDIT_WEIGHTS" ] && extra+=(--edit-weights "$EDIT_WEIGHTS")
+          [ "${EDIT_CONSISTENCY:-0}" != "0" ] && extra+=(--edit-consistency "$EDIT_CONSISTENCY")
+          # The job is cut off at 355 min. Train for whatever is left after setup and data
+          # fetching, minus 40 min for preparing the validation images, the last validation, saving and uploads.
+          MAX_HOURS=$(python3 -c "import os,time; print(round(max(0.5, (355*60 - (time.time()-int(os.environ["JOB_STARTED"])) - 40*60)/3600), 2))")
+          echo "Training time budget for this job: $MAX_HOURS h"
           python -u tools/adv_finetune.py --model "$MODEL" --objective "$OBJECTIVE" \
-            --train-data data/train/openfake data/train/defactify --val-data data/val/openfake \
+            --train-data "${train_data[@]}" --val-data "${val_data[@]}" \
             --per-class "$PER_CLASS" --val-per-class 150 --epochs "$EPOCHS" --evals-per-epoch 1 \
-            --workers 2 --torch-threads 3 --max-hours 4.8 --save-state --tag p3 --out runs "${extra[@]}" \
+            --workers 2 --torch-threads 3 --max-hours "$MAX_HOURS" --save-state --tag p3 --out runs "${extra[@]}" \
             | tee runs-train.log
 
       - name: Result
