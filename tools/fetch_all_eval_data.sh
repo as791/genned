@@ -3,7 +3,8 @@
 # (same seed -> same images everywhere). A dataset that fails to fetch is skipped with a
 # warning, not fatal.
 # Usage: tools/fetch_all_eval_data.sh [samples_per_class] [name ...]
-#   names: defactify, mj-dalle-sd-nbp (the default set), openfake, phone-photos (real only)
+#   names: defactify, mj-dalle-sd-nbp (the default set), openfake, phone-photos (real only),
+#          unsplash-phone (real only)
 set -u
 PER_CLASS="${1:-250}"
 shift || true
@@ -51,6 +52,14 @@ fetch() {
       python tools/fetch_mds_photos.py \
         --dataset sumathiselvan/LAION-Mobile-streaming \
         --out eval-data/phone-photos --count "$PER_CLASS" --split test
+      ;;
+    unsplash-phone)
+      # Real only, evaluation only: phone photos listed in the Unsplash Lite dataset (camera
+      # make is a phone brand), downloaded from Unsplash's image server. A second source,
+      # independent of LAION-Mobile, which the detector is also trained on. Never trained
+      # on. Unsplash Dataset terms: internal use only, no redistribution, so the photos
+      # stay on the runner.
+      python tools/fetch_unsplash_phone.py --out eval-data/unsplash-phone --count "$PER_CLASS"
       ;;
     *)
       echo "::error::unknown dataset $1"
