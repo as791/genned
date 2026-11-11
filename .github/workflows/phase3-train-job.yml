@@ -138,7 +138,7 @@ jobs:
           [ "${EDIT_CONSISTENCY:-0}" != "0" ] && extra+=(--edit-consistency "$EDIT_CONSISTENCY")
           # The job is cut off at 355 min. Train for whatever is left after setup and data
           # fetching, minus 40 min for preparing the validation images, the last validation, saving and uploads.
-          MAX_HOURS=$(python3 -c "import os,time; print(round(max(0.5, (355*60 - (time.time()-int(os.environ["JOB_STARTED"])) - 40*60)/3600), 2))")
+          MAX_HOURS=$(python3 -c "import os,time; print(round(max(0.5, (355*60 - (time.time()-int(os.environ['JOB_STARTED'])) - 40*60)/3600), 2))")
           echo "Training time budget for this job: $MAX_HOURS h"
           python -u tools/adv_finetune.py --model "$MODEL" --objective "$OBJECTIVE" \
             --train-data "${train_data[@]}" --val-data "${val_data[@]}" \
