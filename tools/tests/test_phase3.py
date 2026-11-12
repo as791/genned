@@ -118,6 +118,21 @@ class UniversalTrainingTest(unittest.TestCase):
             attacked = loss(model((x + deltas[y.long()]).clamp(0, 1)), y)
         self.assertGreater(float(attacked), float(clean))
 
+    def test_validation_never_exceeds_the_batch_size(self):
+        torch = self.torch
+        model = self.tiny_model().eval()
+        sizes = []
+        model.register_forward_hook(lambda module, inputs, output: sizes.append(len(inputs[0])))
+        x_u8 = (torch.rand(22, 3, 32, 32) * 255).round().to(torch.uint8)
+        y = torch.tensor([1.0] * 11 + [0.0] * 11)
+        views = {"clean": (x_u8, y), "noise4": (x_u8, y)}
+        metrics = self.ft.evaluate_phase3(model, views, torch.device("cpu"), 8 / 255, amp=False, batch=4, uap_epochs=1)
+        self.assertLessEqual(max(sizes), 4)
+        self.assertEqual(metrics["n"], 22)
+        for key in ("uap_robust_acc_8", "uap_robust_acc_ai_8", "uap_robust_acc_real_8"):
+            self.assertTrue(0.0 <= metrics[key] <= 1.0)
+        self.assertGreater(self.ft.peak_memory_gb(), 0.0)
+
     def test_prepared_views_are_exact(self):
         import tempfile
 

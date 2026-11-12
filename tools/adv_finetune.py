@@ -392,6 +392,13 @@ def prepare_views(dataset, workers: int, batch: int, label: str) -> tuple[torch.
     return torch.cat(xs), torch.cat(ys)
 
 
+def peak_memory_gb() -> float:
+    """Peak resident memory of this process so far (Linux reports kilobytes)."""
+    import resource
+
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6
+
+
 def split_halves(y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Fixed, stratified split for the validation universal attack: images of each class
     alternate between the fit half and the test half, so both halves hold AI and real
@@ -433,13 +440,19 @@ def evaluate_phase3(model: nn.Module, views: dict[str, tuple[torch.Tensor, torch
     out["edit_auc_min"] = float(np.min(valid)) if valid else None
 
     x_u8, y = views["clean"]
-    x = x_u8.float() / 255
     fit_idx, test_idx = split_halves(y)
-    deltas = fit_universal(model, x[fit_idx], y[fit_idx], eps, uap_epochs, batch, device, amp)
-    test_x, test_y = x[test_idx].to(device), y[test_idx].to(device)
-    with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-        clean_logit = model(test_x).float()
-        adv_logit = model((test_x + deltas[test_y.long()]).clamp(0, 1)).float()
+    deltas = fit_universal(model, x_u8[fit_idx].float() / 255, y[fit_idx], eps, uap_epochs, batch, device, amp)
+    test_y = y[test_idx].to(device)
+    # In chunks of `batch`: the whole test half at once (225 images at 380 px through
+    # EfficientNet-B4) needs more memory than a 16 GB runner has.
+    clean_logits, adv_logits = [], []
+    for i in range(0, len(test_idx), batch):
+        idx = test_idx[i : i + batch]
+        xb, yb = (x_u8[idx].float() / 255).to(device), y[idx].to(device)
+        with torch.no_grad(), torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+            clean_logits.append(model(xb).float())
+            adv_logits.append(model((xb + deltas[yb.long()]).clamp(0, 1)).float())
+    clean_logit, adv_logit = torch.cat(clean_logits), torch.cat(adv_logits)
     # Robust = right on the clean image AND under the pattern, so a model that gets an image
     # wrong either way (or a degenerate constant model) can't score as robust.
     robust = ((clean_logit > 0).float() == test_y) & ((adv_logit > 0).float() == test_y)
@@ -634,7 +647,7 @@ def main() -> None:
             metrics = evaluate_phase3(model, views, device, args.eps / 255, amp, batch, args.val_uap_epochs)
         else:
             metrics = evaluate(model, val_loader, device, eval_eps, amp)
-        print(f"  validation took {time.time() - started_v:.0f}s", flush=True)
+        print(f"  validation took {time.time() - started_v:.0f}s (peak memory {peak_memory_gb():.1f} GB)", flush=True)
         return metrics
 
     resumed = torch.load(args.resume_state, map_location="cpu", weights_only=False) if args.resume_state else None
