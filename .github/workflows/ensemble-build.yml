@@ -201,7 +201,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
+          # Branch from main as it is now, not as it was when this run started: the token
+          # may not push a branch whose workflow files differ from main's, which happens
+          # when a workflow changed on main during the build.
+          git fetch --depth 1 origin main
+          git checkout -f -B "$BRANCH" FETCH_HEAD
           cp model-assets/*.onnx app/src/main/assets/models/
           cp eval-results/ensemble-params.json internal-docs/ensemble-params.json
           cp eval-results/report.md internal-docs/ensemble-build-report.md
