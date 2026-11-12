@@ -31,7 +31,7 @@ jobs:
           set -o pipefail
           python -u tools/adv_finetune.py --model commfor --objective aug+uat --dry-run \
             --edit-weights grain=3,sharpen=3 --edit-consistency 1 --balance-classes \
-            --epochs 2 --evals-per-epoch 1 --workers 0 --save-state --out /tmp/dry-run | tee /tmp/dry-run.log
+            --epochs 2 --evals-per-epoch 1 --workers 2 --save-state --out /tmp/dry-run | tee /tmp/dry-run.log
           # The state is saved at the validation between the epochs, not only at the end.
           grep -q "saved training state at step" /tmp/dry-run.log
           grep -q "peak memory" /tmp/dry-run.log

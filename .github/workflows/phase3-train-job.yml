@@ -181,8 +181,8 @@ jobs:
           [ "${#train_data[@]}" -gt 0 ] && [ "${#val_data[@]}" -gt 0 ] || { echo "::error::No training or validation data selected"; exit 1; }
           [ "$RESUME" = "true" ] && extra+=(--resume-state "state/$MODEL-state-p3.pt")
           # EfficientNet-B4 at 380 px: a batch of 12 in four slices (9 images per forward with
-          # the perturbed and the unedited views). 36 at once, and then 18, ran a 16 GB runner
-          # out of memory; the validation attack's 12 images peak at 11 GB.
+          # the perturbed and the unedited views; 3 per slice in the validation attack).
+          # Unsliced, the validation attack alone peaks at 11 GB of the runner's 16 GB.
           [ "$MODEL" = "bundled" ] && extra+=(--batch-size 12 --grad-chunks 4)
           if [ "${PHONE_REAL:-0}" -gt 0 ]; then
             # A real-only folder: draw AI and real equally often so it doesn't tilt the model.

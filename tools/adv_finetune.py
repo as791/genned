@@ -353,11 +353,12 @@ def jitter(delta: torch.Tensor, min_scale: float = 0.85) -> torch.Tensor:
 
 
 def fit_universal(model: nn.Module, images: torch.Tensor, labels: torch.Tensor, eps: float, epochs: int,
-                  batch: int, device, amp: bool) -> torch.Tensor:
+                  batch: int, device, amp: bool, chunks: int = 1) -> torch.Tensor:
     """Fresh universal perturbations against the current model (validation attacker): one for
     the AI images (push toward real) and one for the real images (push toward AI), each by
     minibatch sign-ascent on BCE through random crops/rescales. Returns (2, 3, H, W):
-    index 1 for AI images, 0 for real."""
+    index 1 for AI images, 0 for real. Each minibatch is run in `chunks` slices whose
+    gradients add up to the minibatch's (less memory for a large model)."""
     deltas = torch.zeros(2, 3, *images.shape[-2:], device=device)
     alpha = eps / 8
     model.eval()
@@ -365,13 +366,19 @@ def fit_universal(model: nn.Module, images: torch.Tensor, labels: torch.Tensor, 
         order = torch.randperm(len(images))
         for i in range(0, len(images), batch):
             idx = order[i : i + batch]
-            x, y = images[idx].to(device), labels[idx].to(device)
             d = deltas.clone().requires_grad_(True)
-            per_image = d[y.long()]
-            adv = (x + torch.cat([jitter(per_image[j : j + 1]) for j in range(len(x))])).clamp(0, 1)
-            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-                logit = model(adv).float()
-            grad, = torch.autograd.grad(F.binary_cross_entropy_with_logits(logit, y), d)
+            n = len(idx)
+            slices = max(1, min(chunks, n))
+            bounds = [n * k // slices for k in range(slices + 1)]
+            grad = torch.zeros_like(d)
+            for lo, hi in zip(bounds, bounds[1:]):
+                x, y = images[idx[lo:hi]].to(device), labels[idx[lo:hi]].to(device)
+                per_image = d[y.long()]
+                adv = (x + torch.cat([jitter(per_image[j : j + 1]) for j in range(len(x))])).clamp(0, 1)
+                with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+                    logit = model(adv).float()
+                part, = torch.autograd.grad(F.binary_cross_entropy_with_logits(logit, y, reduction="sum") / n, d)
+                grad += part
             deltas = (deltas + alpha * grad.sign()).clamp(-eps, eps).detach()
     return deltas
 
@@ -454,6 +461,28 @@ def available_memory_gb() -> float | None:
     return None
 
 
+def current_memory_gb() -> float:
+    """Resident memory of this process now (0 where /proc isn't available)."""
+    try:
+        with open("/proc/self/statm") as statm:
+            return int(statm.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1e9
+    except (OSError, ValueError, IndexError):
+        return 0.0
+
+
+def release_memory() -> None:
+    """Hands freed memory back to the system (glibc keeps it otherwise). It matters before
+    the data loader's workers reuse it: a validation of a large model leaves gigabytes."""
+    import ctypes
+    import gc
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
 def peak_memory_gb() -> float:
     """Peak resident memory of this process so far (Linux reports kilobytes)."""
     import resource
@@ -475,7 +504,7 @@ def split_halves(y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
 
 
 def evaluate_phase3(model: nn.Module, views: dict[str, tuple[torch.Tensor, torch.Tensor]], device, eps: float,
-                    amp: bool, batch: int, uap_epochs: int) -> dict:
+                    amp: bool, batch: int, uap_epochs: int, chunks: int = 1) -> dict:
     """Clean AUC/accuracy, AUC under each validation edit, and accuracy of the other half of the
     validation images under a fresh universal perturbation fit on the first half. `views` maps
     "clean" and each edit name to prepare_views() output."""
@@ -503,7 +532,7 @@ def evaluate_phase3(model: nn.Module, views: dict[str, tuple[torch.Tensor, torch
 
     x_u8, y = views["clean"]
     fit_idx, test_idx = split_halves(y)
-    deltas = fit_universal(model, x_u8[fit_idx].float() / 255, y[fit_idx], eps, uap_epochs, batch, device, amp)
+    deltas = fit_universal(model, x_u8[fit_idx].float() / 255, y[fit_idx], eps, uap_epochs, batch, device, amp, chunks)
     test_y = y[test_idx].to(device)
     # In chunks of `batch`: the whole test half at once (225 images at 380 px through
     # EfficientNet-B4) needs more memory than a 16 GB runner has.
@@ -672,6 +701,12 @@ def main() -> None:
         train_set, batch_size=batch, shuffle=sampler is None, sampler=sampler, drop_last=True,
         num_workers=args.workers, pin_memory=amp,
         persistent_workers=args.workers > 0, prefetch_factor=4 if args.workers > 0 else None)
+    if args.workers > 0:
+        # Start the loader's worker processes now, while this process is small. A worker
+        # forked after the first validation shares this process's heap as it is then
+        # (gigabytes for a large model), and every page training reuses is copied: three
+        # EfficientNet-B4 runs ran out of memory within a minute of the first training step.
+        iter(train_loader)
     val_loader = torch.utils.data.DataLoader(val_set, batch_size=batch, num_workers=args.workers)
     steps_per_epoch = len(train_loader)
     total_steps = max(1, epochs * steps_per_epoch)
@@ -710,10 +745,16 @@ def main() -> None:
         started_v = time.time()
         print("validating...", flush=True)
         if phase3:
-            metrics = evaluate_phase3(model, views, device, args.eps / 255, amp, batch, args.val_uap_epochs)
+            metrics = evaluate_phase3(model, views, device, args.eps / 255, amp, batch, args.val_uap_epochs,
+                                      args.grad_chunks)
         else:
             metrics = evaluate(model, val_loader, device, eval_eps, amp)
-        print(f"  validation took {time.time() - started_v:.0f}s (peak memory {peak_memory_gb():.1f} GB)", flush=True)
+        before = current_memory_gb()
+        release_memory()
+        free = available_memory_gb()
+        print(f"  validation took {time.time() - started_v:.0f}s (peak memory {peak_memory_gb():.1f} GB; "
+              f"in use {before:.1f} GB, {current_memory_gb():.1f} GB after releasing; "
+              f"free {free if free is None else round(free, 1)} GB)", flush=True)
         return metrics
 
     resumed = torch.load(args.resume_state, map_location="cpu", weights_only=False) if args.resume_state else None
@@ -791,7 +832,8 @@ def main() -> None:
 
     free = available_memory_gb()
     print(f"training starts at step {step}/{total_steps}: batch {batch} in {max(1, args.grad_chunks)} slice(s), "
-          f"memory peak so far {peak_memory_gb():.1f} GB, free {free if free is None else round(free, 1)} GB",
+          f"memory in use {current_memory_gb():.1f} GB (peak {peak_memory_gb():.1f} GB), "
+          f"free {free if free is None else round(free, 1)} GB",
           flush=True)
     while step < total_steps and not log["stopped"] and not timed_out:
         for batch_items in train_loader:
@@ -881,7 +923,8 @@ def main() -> None:
                       f"in-batch robust acc {avg['batch_robust_acc']:.1%}) "
                       f"eps {cur_eps * 255:.2f}/255 beta {cur_beta:.2f} lr {scheduler.get_last_lr()[0]:.2e} "
                       f"- {rate:.1f} img/s, training ETA {eta / 60:.0f} min ({time.time() - started:.0f}s), "
-                      f"memory peak {peak_memory_gb():.1f} GB, free {free if free is None else round(free, 1)} GB",
+                      f"memory peak {peak_memory_gb():.1f} GB, in use {current_memory_gb():.1f} GB, "
+                      f"free {free if free is None else round(free, 1)} GB",
                       flush=True)
             if step % eval_every != 0 and step != total_steps:
                 continue

@@ -118,6 +118,31 @@ class UniversalTrainingTest(unittest.TestCase):
             attacked = loss(model((x + deltas[y.long()]).clamp(0, 1)), y)
         self.assertGreater(float(attacked), float(clean))
 
+    def test_universal_fit_in_slices_matches_the_whole_minibatch(self):
+        import random
+
+        torch = self.torch
+        model = self.tiny_model().eval()
+        x = torch.rand(10, 3, 32, 32)
+        y = torch.tensor([1.0, 0.0] * 5)
+        fits = []
+        for chunks in (1, 3):
+            torch.manual_seed(3)  # the order of the minibatches
+            random.seed(3)  # the jitter of the perturbation
+            sizes = []
+            hook = model.register_forward_hook(lambda module, inputs, output: sizes.append(len(inputs[0])))
+            fits.append(self.ft.fit_universal(model, x, y, 8 / 255, epochs=2, batch=5, device=torch.device("cpu"),
+                                              amp=False, chunks=chunks))
+            hook.remove()
+            self.assertLessEqual(max(sizes), 5 if chunks == 1 else 2)
+        # Sign steps: equal except where a gradient is within rounding of zero.
+        same = (fits[0] == fits[1]).float().mean()
+        self.assertGreater(float(same), 0.98)
+
+    def test_memory_helpers_run(self):
+        self.assertGreaterEqual(self.ft.current_memory_gb(), 0.0)
+        self.ft.release_memory()
+
     def test_a_batch_in_slices_gives_the_same_gradients(self):
         import random
 
