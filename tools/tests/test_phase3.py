@@ -119,6 +119,8 @@ class UniversalTrainingTest(unittest.TestCase):
         self.assertGreater(float(attacked), float(clean))
 
     def test_a_batch_in_slices_gives_the_same_gradients(self):
+        import random
+
         torch = self.torch
         x, x_plain = torch.rand(6, 3, 32, 32), torch.rand(6, 3, 32, 32)
         y = torch.tensor([1.0, 0.0, 1.0, 1.0, 0.0, 0.0])
@@ -130,7 +132,7 @@ class UniversalTrainingTest(unittest.TestCase):
             sizes = []
             model.register_forward_hook(lambda module, inputs, output: sizes.append(len(inputs[0])))
             d = (torch.rand(2, 3, 32, 32) * 0.02).requires_grad_(True)
-            torch.manual_seed(1)  # the same random crops of the perturbation for every run
+            random.seed(1)  # the same random crops of the perturbation (jitter) for every run
             out = self.ft.phase3_backward(model, x, y, x_plain, d, 1.0, 1.0, scaler, False, chunks)
             runs.append(([p.grad.clone() for p in model.parameters()], d.grad.clone(), out, sizes))
         self.assertEqual(runs[0][3], [18])  # one forward: 6 images x 3 views

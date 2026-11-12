@@ -441,9 +441,10 @@ def phase3_backward(model: nn.Module, x: torch.Tensor, y: torch.Tensor, x_plain:
 def available_memory_gb() -> float | None:
     """Memory the system can still hand out (None where /proc/meminfo doesn't exist)."""
     try:
-        for line in open("/proc/meminfo"):
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 1e6
+        with open("/proc/meminfo") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) / 1e6
     except OSError:
         pass
     return None
