@@ -15,6 +15,7 @@ on:
       defactify_per_class: {type: string, required: true}
       epochs: {type: string, required: true}
       phone_real: {type: string, default: '0'}
+      video_frames: {type: string, default: '0'}
       edit_weights: {type: string, default: ''}
       edit_consistency: {type: string, default: '0'}
       resume: {type: boolean, default: false}
@@ -66,6 +67,7 @@ jobs:
           OPENFAKE_PER_CLASS: ${{ inputs.openfake_per_class }}
           DEFACTIFY_PER_CLASS: ${{ inputs.defactify_per_class }}
           PHONE_REAL: ${{ inputs.phone_real }}
+          VIDEO_FRAMES: ${{ inputs.video_frames }}
         run: |
           PROPRIETARY="midjourney|dall-?e|gpt-image|imagen|ideogram|grok|recraft|seedream|nano-banana|mystic|veo|sora|kling|firefly|runway|luma|hailuo|ernie|seededit|gemini"
           fetch() {
@@ -75,19 +77,24 @@ jobs:
             done
             return 1
           }
-          fetch --dataset ComplexDataLab/OpenFake --config core --split train --strict-split \
-            --out data/train/openfake --per-class "$OPENFAKE_PER_CLASS" \
-            --label-col label --ai-values fake --real-values real --generator-col model \
-            --exclude-generators "$PROPRIETARY" --max-per-generator 600 --max-scan 200000
-          fetch --dataset Rajarshi-Roy-research/Defactify_Image_Dataset --split train --strict-split \
-            --out data/train/defactify --per-class "$DEFACTIFY_PER_CLASS" --max-scan 25000 \
-            --label-col Label_A --ai-values 1 --real-values 0 \
-            --generator-col Label_B --generator-names real,sd21,sdxl,sd3,dalle3,midjourney6 \
-            --exclude-generators "$PROPRIETARY"
-          fetch --dataset ComplexDataLab/OpenFake --config core --split validation --strict-split \
-            --out data/val/openfake --per-class 150 \
-            --label-col label --ai-values fake --real-values real --generator-col model \
-            --exclude-generators "$PROPRIETARY" --max-per-generator 15 --max-scan 20000
+          # A source set to 0 is left out (a video-frame run uses none of the image sets).
+          if [ "${OPENFAKE_PER_CLASS:-0}" -gt 0 ]; then
+            fetch --dataset ComplexDataLab/OpenFake --config core --split train --strict-split \
+              --out data/train/openfake --per-class "$OPENFAKE_PER_CLASS" \
+              --label-col label --ai-values fake --real-values real --generator-col model \
+              --exclude-generators "$PROPRIETARY" --max-per-generator 600 --max-scan 200000
+            fetch --dataset ComplexDataLab/OpenFake --config core --split validation --strict-split \
+              --out data/val/openfake --per-class 150 \
+              --label-col label --ai-values fake --real-values real --generator-col model \
+              --exclude-generators "$PROPRIETARY" --max-per-generator 15 --max-scan 20000
+          fi
+          if [ "${DEFACTIFY_PER_CLASS:-0}" -gt 0 ]; then
+            fetch --dataset Rajarshi-Roy-research/Defactify_Image_Dataset --split train --strict-split \
+              --out data/train/defactify --per-class "$DEFACTIFY_PER_CLASS" --max-scan 25000 \
+              --label-col Label_A --ai-values 1 --real-values 0 \
+              --generator-col Label_B --generator-names real,sd21,sdxl,sd3,dalle3,midjourney6 \
+              --exclude-generators "$PROPRIETARY"
+          fi
           # Real phone photos as extra real examples (LAION-Mobile; photos stay on the runner).
           # Training uses the "train" shards and model selection the "val" shards; the
           # benchmark's photos come from the "test" shards and are never fetched here.
@@ -104,8 +111,27 @@ jobs:
               [ "$attempt" = 3 ] && { echo "::error::Could not fetch the phone photos"; exit 1; }
             done
           fi
+          # Video frames (GenVideo; clips stay on the runner), sampled the way the app samples
+          # a video. Only its open-weights generators are kept: the fetcher skips every other
+          # one and fails if an excluded generator's folder appears. Training reads the
+          # "train" shards and model selection the "val" shards.
+          if [ "${VIDEO_FRAMES:-0}" -gt 0 ]; then
+            pip install -q opencv-python-headless
+            for attempt in 1 2 3; do
+              rm -rf data/train/video data/val/video
+              python -u tools/fetch_video_frames.py --out data/train/video \
+                  --frames-per-class "$VIDEO_FRAMES" --split train --seed 4321 \
+                && python -u tools/fetch_video_frames.py --out data/val/video \
+                  --frames-per-class 150 --split val --seed 8765 \
+                && break
+              echo "Video frame fetch failed (attempt $attempt); retrying in 30 s"; sleep 30
+              [ "$attempt" = 3 ] && { echo "::error::Could not fetch the video frames"; exit 1; }
+            done
+          fi
           # Fail loudly if a proprietary generator's images still reached the training data.
-          if ls -d data/*/*/ai/*/ | grep -i -E "$PROPRIETARY"; then
+          # (The video folders are checked by their own fetcher: "opensora" is an open model
+          # that the name list below would mistake for Sora.)
+          if ls -d data/*/*/ai/*/ | grep -v '/video/' | grep -i -E "$PROPRIETARY"; then
             echo "::error::Proprietary-generator images found in the training data"; exit 1
           fi
           du -sh data/train/* data/val/*
@@ -136,14 +162,23 @@ jobs:
           EPOCHS: ${{ inputs.epochs }}
           PER_CLASS: ${{ inputs.openfake_per_class }}
           RESUME: ${{ inputs.resume || inputs.resume_run_id != '' }}
+          DEFACTIFY_PER_CLASS: ${{ inputs.defactify_per_class }}
           PHONE_REAL: ${{ inputs.phone_real }}
+          VIDEO_FRAMES: ${{ inputs.video_frames }}
           EDIT_WEIGHTS: ${{ inputs.edit_weights }}
           EDIT_CONSISTENCY: ${{ inputs.edit_consistency }}
         run: |
           set -o pipefail
           extra=()
-          train_data=(data/train/openfake data/train/defactify)
-          val_data=(data/val/openfake)
+          train_data=(); val_data=()
+          [ "${PER_CLASS:-0}" -gt 0 ] && { train_data+=(data/train/openfake); val_data+=(data/val/openfake); }
+          [ "${DEFACTIFY_PER_CLASS:-0}" -gt 0 ] && train_data+=(data/train/defactify)
+          if [ "${VIDEO_FRAMES:-0}" -gt 0 ]; then
+            train_data+=(data/train/video); val_data+=(data/val/video)
+            # --per-class is a cap per folder: it must not cut the frames short.
+            [ "$VIDEO_FRAMES" -gt "${PER_CLASS:-0}" ] && PER_CLASS="$VIDEO_FRAMES"
+          fi
+          [ "${#train_data[@]}" -gt 0 ] && [ "${#val_data[@]}" -gt 0 ] || { echo "::error::No training or validation data selected"; exit 1; }
           [ "$RESUME" = "true" ] && extra+=(--resume-state "state/$MODEL-state-p3.pt")
           [ "$MODEL" = "bundled" ] && extra+=(--batch-size 12)
           if [ "${PHONE_REAL:-0}" -gt 0 ]; then

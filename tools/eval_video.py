@@ -113,8 +113,8 @@ def _download(args: argparse.Namespace, repo_path: str, target: Path, token: str
     target.write_bytes(local.resolve().read_bytes())  # cache entries are symlinks into the blob store
 
 
-def sample_frames(path: Path) -> list[Image.Image]:
-    """VideoFrameSampler: FRAME_COUNT frames at (i+1)/(FRAME_COUNT+1), <=1024 px, JPEG q90."""
+def sample_frame_jpegs(path: Path) -> list[bytes]:
+    """VideoFrameSampler: FRAME_COUNT frames at (i+1)/(FRAME_COUNT+1), <=1024 px, as JPEG q90 bytes."""
     import cv2
 
     capture = cv2.VideoCapture(str(path))
@@ -136,11 +136,15 @@ def sample_frames(path: Path) -> list[Image.Image]:
                                      Image.BILINEAR)
             buffer = io.BytesIO()
             image.save(buffer, format="JPEG", quality=FRAME_JPEG_QUALITY)
-            buffer.seek(0)
-            frames.append(Image.open(buffer).convert("RGB"))
+            frames.append(buffer.getvalue())
         return frames
     finally:
         capture.release()
+
+
+def sample_frames(path: Path) -> list[Image.Image]:
+    """The sampled frames as the classifier sees them (decoded from their JPEG q90 bytes)."""
+    return [Image.open(io.BytesIO(data)).convert("RGB") for data in sample_frame_jpegs(path)]
 
 
 def evaluate_videos(args: argparse.Namespace) -> None:
