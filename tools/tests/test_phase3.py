@@ -133,7 +133,10 @@ class UniversalTrainingTest(unittest.TestCase):
             model.register_forward_hook(lambda module, inputs, output: sizes.append(len(inputs[0])))
             d = (torch.rand(2, 3, 32, 32) * 0.02).requires_grad_(True)
             random.seed(1)  # the same random crops of the perturbation (jitter) for every run
-            out = self.ft.phase3_backward(model, x, y, x_plain, d, 1.0, 1.0, scaler, False, chunks)
+            calls = []
+            out = self.ft.phase3_backward(model, x, y, x_plain, d, 1.0, 1.0, scaler, False, chunks,
+                                          after_slice=lambda: calls.append(1))
+            self.assertEqual(len(calls), len(sizes))  # once per slice
             runs.append(([p.grad.clone() for p in model.parameters()], d.grad.clone(), out, sizes))
         self.assertEqual(runs[0][3], [18])  # one forward: 6 images x 3 views
         self.assertEqual(runs[1][3], [6, 6, 6])

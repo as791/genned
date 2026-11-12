@@ -394,7 +394,8 @@ def prepare_views(dataset, workers: int, batch: int, label: str) -> tuple[torch.
 
 def phase3_backward(model: nn.Module, x: torch.Tensor, y: torch.Tensor, x_plain: torch.Tensor | None,
                     d: torch.Tensor | None, uat_weight: float, consistency: float, scaler, amp: bool,
-                    chunks: int = 1) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+                    chunks: int = 1, after_slice=None,
+                    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Forward and backward of one Phase 3 batch: the (possibly edited) view, the same view
     under the universal perturbations `d` (None = no attack training) and, with `x_plain`,
     the unedited view for the edit-consistency loss.
@@ -402,7 +403,8 @@ def phase3_backward(model: nn.Module, x: torch.Tensor, y: torch.Tensor, x_plain:
     The batch is run in `chunks` slices, one forward and backward each, so a large model's
     three views fit in memory. The gradients add up to those of the whole batch's mean loss:
     batch norm is frozen, so no image's output depends on another's. Returns the batch's
-    mean (loss, clean loss, robust loss, consistency loss) and the perturbed views' logits."""
+    mean (loss, clean loss, robust loss, consistency loss) and the perturbed views' logits.
+    `after_slice()` is called after each slice's backward, when memory use is at its highest."""
     n = len(x)
     chunks = max(1, min(chunks, n))
     bounds = [n * i // chunks for i in range(chunks + 1)]  # no empty slice: chunks <= n
@@ -435,6 +437,8 @@ def phase3_backward(model: nn.Module, x: torch.Tensor, y: torch.Tensor, x_plain:
         for total, value in zip(totals, (loss, clean_loss, robust_loss, consistency_loss)):
             total += value.detach() * (m / n)
         adv_logits.append(adv_logit.detach())
+        if after_slice is not None:
+            after_slice()
     return totals[0], totals[1], totals[2], totals[3], torch.cat(adv_logits)
 
 
@@ -777,6 +781,18 @@ def main() -> None:
     sums = {"loss": 0.0, "clean": 0.0, "robust": 0.0, "consistency": 0.0, "batch_robust_acc": 0.0}
     since = 0
 
+    def check_memory() -> None:
+        """A runner that runs out of memory dies without a log or a saved state; stopping
+        with an error while a little is left keeps both."""
+        free = available_memory_gb()
+        if args.min_free_gb and free is not None and free < args.min_free_gb:
+            sys.exit(f"Out of memory at step {step}: {free:.2f} GB left (process peak {peak_memory_gb():.1f} GB). "
+                     f"Use a smaller --batch-size or more --grad-chunks.")
+
+    free = available_memory_gb()
+    print(f"training starts at step {step}/{total_steps}: batch {batch} in {max(1, args.grad_chunks)} slice(s), "
+          f"memory peak so far {peak_memory_gb():.1f} GB, free {free if free is None else round(free, 1)} GB",
+          flush=True)
     while step < total_steps and not log["stopped"] and not timed_out:
         for batch_items in train_loader:
             # (x, y), or (x, x_unedited, y) with --edit-consistency
@@ -802,7 +818,7 @@ def main() -> None:
                 optimizer.zero_grad(set_to_none=True)
                 loss, clean_loss, robust_loss, consistency_loss, adv_logit = phase3_backward(
                     model, x, y, x_plain, d if uses_uat else None, args.uat_weight, consistency, scaler, amp,
-                    args.grad_chunks)
+                    args.grad_chunks, after_slice=check_memory)
                 if uses_uat and d.grad is not None and torch.isfinite(d.grad).all() and cur_eps > 0:
                     # The perturbations ascend the same loss the model descends.
                     deltas = (deltas + args.uat_step * cur_eps * d.grad.sign()).clamp(-cur_eps, cur_eps).detach()
@@ -849,16 +865,12 @@ def main() -> None:
             sums["robust"] += robust_loss.item()
             sums["consistency"] += float(consistency_loss)
             sums["batch_robust_acc"] += ((adv_logit.detach() > 0).float() == y).float().mean().item()
+            check_memory()
             free = available_memory_gb()
             if step == first_step + 1:
                 print(f"first training step done after {time.time() - started:.0f}s "
                       f"({steps_per_epoch} steps per epoch; memory peak {peak_memory_gb():.1f} GB, "
                       f"free {free if free is None else round(free, 1)} GB)", flush=True)
-            if args.min_free_gb and free is not None and free < args.min_free_gb:
-                # A runner that runs out of memory dies without a log or a saved state;
-                # stopping here keeps both.
-                sys.exit(f"Out of memory at step {step}: {free:.2f} GB left (process peak {peak_memory_gb():.1f} GB). "
-                         f"Use a smaller --batch-size or more --grad-chunks.")
             if step % 50 == 0 or (step - first_step <= 100 and step % 10 == 0):
                 avg = {k: v / since for k, v in sums.items()}
                 elapsed = time.time() - started - validation_seconds
