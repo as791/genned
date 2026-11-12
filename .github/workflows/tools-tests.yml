@@ -39,3 +39,10 @@ jobs:
             --edit-consistency 1 --grad-chunks 2 \
             --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run-bundled | tee /tmp/dry-run-bundled.log
           grep -q "memory peak" /tmp/dry-run-bundled.log
+          # A run that is out of time (the limit counts from the start of the process) stops
+          # before its first step and still leaves a state to continue from.
+          python -u tools/adv_finetune.py --model commfor --objective aug+uat --dry-run \
+            --epochs 1 --evals-per-epoch 1 --workers 0 --save-state --max-hours 0.000001 \
+            --out /tmp/dry-run-limit | tee /tmp/dry-run-limit.log
+          grep -q "time limit (" /tmp/dry-run-limit.log
+          grep -q "Saved training state" /tmp/dry-run-limit.log

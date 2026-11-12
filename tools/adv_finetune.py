@@ -583,6 +583,7 @@ def assess(metrics: dict, base: dict, auc_gate: float, acc_drop: float, collapse
 
 
 def main() -> None:
+    process_started = time.time()  # --max-hours counts from here: loading and the first validation included
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--model", required=True, choices=["commfor", "bundled"])
     parser.add_argument("--train-data", type=Path, nargs="+")
@@ -636,8 +637,9 @@ def main() -> None:
     parser.add_argument("--push-to-hub", default=None, help="Private HF model repo to upload to, e.g. you/genned-robust")
     parser.add_argument("--dry-run", action="store_true", help="Random-init models + synthetic images, CPU-friendly")
     parser.add_argument("--max-hours", type=float, default=None,
-                        help="Stop training after this long (e.g. under a CI job limit): validate once more, save the "
-                             "best checkpoint and, with --save-state, everything needed to continue")
+                        help="Stop training this long after the process started (e.g. under a CI job limit; "
+                             "loading and the first validation count): validate once more, save the best "
+                             "checkpoint and, with --save-state, everything needed to continue")
     parser.add_argument("--save-state", action="store_true",
                         help="Write <model>-state[-tag].pt (model, optimizer, schedule, perturbations, step, log) so a "
                              "later run can continue with --resume-state")
@@ -842,9 +844,10 @@ def main() -> None:
             x_plain = batch_items[1] if len(batch_items) == 3 else None
             if step >= total_steps:
                 break
-            if args.max_hours and time.time() - started > args.max_hours * 3600:
+            if args.max_hours and time.time() - process_started > args.max_hours * 3600:
                 timed_out = True
-                print(f"time limit ({args.max_hours} h) reached at step {step}/{total_steps}", flush=True)
+                print(f"time limit ({args.max_hours} h since the start of this process) reached at step "
+                      f"{step}/{total_steps}", flush=True)
                 break
             epoch = step // steps_per_epoch + 1
             x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
@@ -971,6 +974,12 @@ def main() -> None:
 
     last_validated = log["evaluations"][-1]["step"] if log["evaluations"] else -1
     if timed_out and step > last_validated and step > first_step:
+        if args.save_state:
+            # First the state: a job that is cut off during the validation below still hands
+            # over the step it reached.
+            log["step"], log["finished"] = step, False
+            write_state(step, best_robust, best_state)
+            print(f"  saved training state at step {step}/{total_steps} (before the last validation)", flush=True)
         # Don't lose the training since the last validation: score it once before stopping.
         metrics = validate()
         eligible, _ = assess(metrics, base, args.auc_gate, args.acc_drop, args.collapse_drop)

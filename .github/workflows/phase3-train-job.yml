@@ -190,8 +190,10 @@ jobs:
           fi
           [ -n "$EDIT_WEIGHTS" ] && extra+=(--edit-weights "$EDIT_WEIGHTS")
           [ "${EDIT_CONSISTENCY:-0}" != "0" ] && extra+=(--edit-consistency "$EDIT_CONSISTENCY")
-          # The job is cut off at 355 min. Train for whatever is left after setup and data
-          # fetching, minus 40 min for preparing the validation images, the last validation, saving and uploads.
+          # The job is cut off at 355 min. The training process gets whatever is left after
+          # setup and data fetching, minus 40 min for its last validation (up to 20 min for
+          # EfficientNet-B4), saving and uploads. Its own start-up (preparing the validation
+          # images, the first validation) counts against the budget.
           MAX_HOURS=$(python3 -c "import os,time; print(round(max(0.5, (355*60 - (time.time()-int(os.environ['JOB_STARTED'])) - 40*60)/3600), 2))")
           echo "Training time budget for this job: $MAX_HOURS h"
           python -u tools/adv_finetune.py --model "$MODEL" --objective "$OBJECTIVE" \
