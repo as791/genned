@@ -36,4 +36,6 @@ jobs:
           grep -q "saved training state at step" /tmp/dry-run.log
           grep -q "peak memory" /tmp/dry-run.log
           python -u tools/adv_finetune.py --model bundled --objective aug+uat --dry-run \
-            --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run-bundled
+            --edit-consistency 1 --grad-chunks 2 \
+            --epochs 1 --evals-per-epoch 1 --workers 0 --out /tmp/dry-run-bundled | tee /tmp/dry-run-bundled.log
+          grep -q "memory peak" /tmp/dry-run-bundled.log

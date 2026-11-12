@@ -392,6 +392,63 @@ def prepare_views(dataset, workers: int, batch: int, label: str) -> tuple[torch.
     return torch.cat(xs), torch.cat(ys)
 
 
+def phase3_backward(model: nn.Module, x: torch.Tensor, y: torch.Tensor, x_plain: torch.Tensor | None,
+                    d: torch.Tensor | None, uat_weight: float, consistency: float, scaler, amp: bool,
+                    chunks: int = 1) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Forward and backward of one Phase 3 batch: the (possibly edited) view, the same view
+    under the universal perturbations `d` (None = no attack training) and, with `x_plain`,
+    the unedited view for the edit-consistency loss.
+
+    The batch is run in `chunks` slices, one forward and backward each, so a large model's
+    three views fit in memory. The gradients add up to those of the whole batch's mean loss:
+    batch norm is frozen, so no image's output depends on another's. Returns the batch's
+    mean (loss, clean loss, robust loss, consistency loss) and the perturbed views' logits."""
+    n = len(x)
+    chunks = max(1, min(chunks, n))
+    bounds = [n * i // chunks for i in range(chunks + 1)]  # no empty slice: chunks <= n
+    device = x.device
+    totals = [torch.zeros((), device=device) for _ in range(4)]
+    adv_logits = []
+    for lo, hi in zip(bounds, bounds[1:]):
+        xs, ys, m = x[lo:hi], y[lo:hi], hi - lo
+        parts = [xs]
+        if d is not None:
+            per_image = d[ys.long()]
+            parts.append((xs + torch.cat([jitter(per_image[j : j + 1]) for j in range(m)])).clamp(0, 1))
+        if x_plain is not None:
+            parts.append(x_plain[lo:hi])
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
+            logits = model(torch.cat(parts)).float()
+        clean_logit = logits[:m]  # the (possibly edited) training view
+        adv_logit = logits[m : 2 * m] if d is not None else clean_logit
+        clean_loss = F.binary_cross_entropy_with_logits(clean_logit, ys)
+        robust_loss = F.binary_cross_entropy_with_logits(adv_logit, ys) if d is not None else clean_loss
+        consistency_loss = torch.zeros((), device=device)
+        if x_plain is not None:
+            plain_logit = logits[-m:]
+            # The unedited view is trained on its label too, and is the fixed target the
+            # edited view's score is pulled to (no gradient through the target).
+            clean_loss = 0.5 * (clean_loss + F.binary_cross_entropy_with_logits(plain_logit, ys))
+            consistency_loss = binary_kl(plain_logit.detach(), clean_logit).mean()
+        loss = clean_loss + (uat_weight * robust_loss if d is not None else 0.0) + consistency * consistency_loss
+        scaler.scale(loss * (m / n)).backward()
+        for total, value in zip(totals, (loss, clean_loss, robust_loss, consistency_loss)):
+            total += value.detach() * (m / n)
+        adv_logits.append(adv_logit.detach())
+    return totals[0], totals[1], totals[2], totals[3], torch.cat(adv_logits)
+
+
+def available_memory_gb() -> float | None:
+    """Memory the system can still hand out (None where /proc/meminfo doesn't exist)."""
+    try:
+        for line in open("/proc/meminfo"):
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1e6
+    except OSError:
+        pass
+    return None
+
+
 def peak_memory_gb() -> float:
     """Peak resident memory of this process so far (Linux reports kilobytes)."""
     import resource
@@ -521,6 +578,10 @@ def main() -> None:
                         help="PGD-AT only: share of each batch that is attacked")
     parser.add_argument("--epochs", type=int, default=None, help="Default: 6 commfor, 4 bundled")
     parser.add_argument("--batch-size", type=int, default=None, help="Default: 32 commfor, 16 bundled")
+    parser.add_argument("--grad-chunks", type=int, default=1,
+                        help="Phase 3: run each batch in this many slices (same gradients, less memory)")
+    parser.add_argument("--min-free-gb", type=float, default=0.7,
+                        help="Stop with an error when the system has less memory left than this (0 = never)")
     parser.add_argument("--lr", type=float, default=None, help="Default: 2e-5 commfor, 1e-5 bundled")
     parser.add_argument("--warmup", type=float, default=0.05, help="Share of steps with linear LR warmup")
     parser.add_argument("--eps", type=float, default=None,
@@ -737,30 +798,10 @@ def main() -> None:
                 model.train()
                 freeze_batchnorm(model)
                 d = deltas.clone().requires_grad_(True)
-                parts = [x]
-                if uses_uat:
-                    per_image = d[y.long()]
-                    parts.append((x + torch.cat([jitter(per_image[j : j + 1]) for j in range(len(x))])).clamp(0, 1))
-                if x_plain is not None:
-                    parts.append(x_plain)
-                with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=amp):
-                    logits = model(torch.cat(parts)).float()
-                n = len(x)
-                clean_logit = logits[:n]  # the (possibly edited) training view
-                adv_logit = logits[n : 2 * n] if uses_uat else clean_logit
-                clean_loss = F.binary_cross_entropy_with_logits(clean_logit, y)
-                robust_loss = F.binary_cross_entropy_with_logits(adv_logit, y) if uses_uat else clean_loss
-                loss = clean_loss + (args.uat_weight * robust_loss if uses_uat else 0.0)
-                if x_plain is not None:
-                    plain_logit = logits[-n:]
-                    # The unedited view is trained on its label too, and is the fixed target the
-                    # edited view's score is pulled to (no gradient through the target).
-                    clean_loss = 0.5 * (clean_loss + F.binary_cross_entropy_with_logits(plain_logit, y))
-                    consistency_loss = binary_kl(plain_logit.detach(), clean_logit).mean()
-                    loss = clean_loss + (args.uat_weight * robust_loss if uses_uat else 0.0) \
-                        + consistency * consistency_loss
                 optimizer.zero_grad(set_to_none=True)
-                scaler.scale(loss).backward()
+                loss, clean_loss, robust_loss, consistency_loss, adv_logit = phase3_backward(
+                    model, x, y, x_plain, d if uses_uat else None, args.uat_weight, consistency, scaler, amp,
+                    args.grad_chunks)
                 if uses_uat and d.grad is not None and torch.isfinite(d.grad).all() and cur_eps > 0:
                     # The perturbations ascend the same loss the model descends.
                     deltas = (deltas + args.uat_step * cur_eps * d.grad.sign()).clamp(-cur_eps, cur_eps).detach()
@@ -807,9 +848,16 @@ def main() -> None:
             sums["robust"] += robust_loss.item()
             sums["consistency"] += float(consistency_loss)
             sums["batch_robust_acc"] += ((adv_logit.detach() > 0).float() == y).float().mean().item()
+            free = available_memory_gb()
             if step == first_step + 1:
                 print(f"first training step done after {time.time() - started:.0f}s "
-                      f"({steps_per_epoch} steps per epoch)", flush=True)
+                      f"({steps_per_epoch} steps per epoch; memory peak {peak_memory_gb():.1f} GB, "
+                      f"free {free if free is None else round(free, 1)} GB)", flush=True)
+            if args.min_free_gb and free is not None and free < args.min_free_gb:
+                # A runner that runs out of memory dies without a log or a saved state;
+                # stopping here keeps both.
+                sys.exit(f"Out of memory at step {step}: {free:.2f} GB left (process peak {peak_memory_gb():.1f} GB). "
+                         f"Use a smaller --batch-size or more --grad-chunks.")
             if step % 50 == 0 or (step - first_step <= 100 and step % 10 == 0):
                 avg = {k: v / since for k, v in sums.items()}
                 elapsed = time.time() - started - validation_seconds
@@ -819,7 +867,8 @@ def main() -> None:
                       f"robust {avg['robust']:.4f}, consistency {avg['consistency']:.4f}, "
                       f"in-batch robust acc {avg['batch_robust_acc']:.1%}) "
                       f"eps {cur_eps * 255:.2f}/255 beta {cur_beta:.2f} lr {scheduler.get_last_lr()[0]:.2e} "
-                      f"- {rate:.1f} img/s, training ETA {eta / 60:.0f} min ({time.time() - started:.0f}s)",
+                      f"- {rate:.1f} img/s, training ETA {eta / 60:.0f} min ({time.time() - started:.0f}s), "
+                      f"memory peak {peak_memory_gb():.1f} GB, free {free if free is None else round(free, 1)} GB",
                       flush=True)
             if step % eval_every != 0 and step != total_steps:
                 continue

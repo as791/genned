@@ -180,7 +180,9 @@ jobs:
           fi
           [ "${#train_data[@]}" -gt 0 ] && [ "${#val_data[@]}" -gt 0 ] || { echo "::error::No training or validation data selected"; exit 1; }
           [ "$RESUME" = "true" ] && extra+=(--resume-state "state/$MODEL-state-p3.pt")
-          [ "$MODEL" = "bundled" ] && extra+=(--batch-size 12)
+          # EfficientNet-B4 at 380 px: a batch of 12 in two slices (18 images per forward with
+          # the perturbed and the unedited views). All 36 at once ran a 16 GB runner out of memory.
+          [ "$MODEL" = "bundled" ] && extra+=(--batch-size 12 --grad-chunks 2)
           if [ "${PHONE_REAL:-0}" -gt 0 ]; then
             # A real-only folder: draw AI and real equally often so it doesn't tilt the model.
             train_data+=(data/train/phone); val_data+=(data/val/phone); extra+=(--balance-classes)

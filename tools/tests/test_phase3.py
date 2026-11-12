@@ -118,6 +118,50 @@ class UniversalTrainingTest(unittest.TestCase):
             attacked = loss(model((x + deltas[y.long()]).clamp(0, 1)), y)
         self.assertGreater(float(attacked), float(clean))
 
+    def test_a_batch_in_slices_gives_the_same_gradients(self):
+        torch = self.torch
+        x, x_plain = torch.rand(6, 3, 32, 32), torch.rand(6, 3, 32, 32)
+        y = torch.tensor([1.0, 0.0, 1.0, 1.0, 0.0, 0.0])
+        scaler = torch.amp.GradScaler("cpu", enabled=False)
+        runs = []
+        for chunks in (1, 3, 4, 99):
+            torch.manual_seed(0)
+            model = self.tiny_model().train()
+            sizes = []
+            model.register_forward_hook(lambda module, inputs, output: sizes.append(len(inputs[0])))
+            d = (torch.rand(2, 3, 32, 32) * 0.02).requires_grad_(True)
+            torch.manual_seed(1)  # the same random crops of the perturbation for every run
+            out = self.ft.phase3_backward(model, x, y, x_plain, d, 1.0, 1.0, scaler, False, chunks)
+            runs.append(([p.grad.clone() for p in model.parameters()], d.grad.clone(), out, sizes))
+        self.assertEqual(runs[0][3], [18])  # one forward: 6 images x 3 views
+        self.assertEqual(runs[1][3], [6, 6, 6])
+        self.assertEqual(runs[3][3], [3] * 6)  # never more slices than images
+        grads, d_grad, out, _ = runs[0]
+        self.assertGreater(float(d_grad.abs().sum()), 0.0)
+        for other_grads, other_d_grad, other_out, _ in runs[1:]:
+            for a, b in zip(grads, other_grads):
+                self.assertTrue(torch.allclose(a, b, atol=1e-6))
+            self.assertTrue(torch.allclose(d_grad, other_d_grad, atol=1e-7))
+            for a, b in zip(out, other_out):
+                self.assertTrue(torch.allclose(a, b, atol=1e-5))
+
+    def test_a_batch_without_attack_or_unedited_view(self):
+        torch = self.torch
+        model = self.tiny_model().train()
+        x, y = torch.rand(5, 3, 32, 32), torch.tensor([1.0, 0.0, 1.0, 0.0, 0.0])
+        scaler = torch.amp.GradScaler("cpu", enabled=False)
+        loss, clean, robust, consistency, adv_logit = self.ft.phase3_backward(
+            model, x, y, None, None, 1.0, 0.0, scaler, False, chunks=2)
+        self.assertAlmostEqual(float(loss), float(clean), places=6)
+        self.assertAlmostEqual(float(robust), float(clean), places=6)
+        self.assertEqual(float(consistency), 0.0)
+        with torch.no_grad():
+            self.assertTrue(torch.allclose(adv_logit, model(x), atol=1e-6))
+
+    def test_available_memory_is_a_number_or_unknown(self):
+        free = self.ft.available_memory_gb()
+        self.assertTrue(free is None or free > 0)
+
     def test_validation_never_exceeds_the_batch_size(self):
         torch = self.torch
         model = self.tiny_model().eval()
