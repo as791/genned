@@ -5,16 +5,20 @@ import java.io.IOException
 
 /**
  * The classifier models are bundled at build time as app assets, never downloaded at
- * runtime (see internal-docs/MODEL.md "Never download a model at runtime"). The app ships
- * with `models/ai-image-detector.onnx` (primary) and two copies of the ensemble partner:
- * `models/commfor-224.onnx` (fine-tuned, for photos) and `models/commfor-224-video.onnx`
- * (published weights, for video frames). [openModelBytes] returns null only if an asset is
- * missing from a build, which callers treat as "classifier unavailable" (primary) or "run
- * the primary alone" (partner).
+ * runtime (see internal-docs/MODEL.md "Never download a model at runtime"). Photos and video
+ * each have their own pair of files:
+ * - photos: `models/ai-image-detector.onnx` (primary, retrained in accuracy round 4) and
+ *   `models/commfor-224.onnx` (Community Forensics, retrained);
+ * - video frames: `models/ai-image-detector-video.onnx` and `models/commfor-224-video.onnx`,
+ *   both with the published weights.
+ *
+ * [openModelBytes] returns null only if an asset is missing from a build, which callers
+ * treat as "classifier unavailable" (primary) or "run the primary alone" (partner).
  */
 object ModelAssets {
     const val ASSET_PATH = "models/ai-image-detector.onnx"
     const val COMMUNITY_FORENSICS_ASSET_PATH = "models/commfor-224.onnx"
+    const val VIDEO_ASSET_PATH = "models/ai-image-detector-video.onnx"
     const val VIDEO_COMMUNITY_FORENSICS_ASSET_PATH = "models/commfor-224-video.onnx"
 
     fun openModelBytes(context: Context, assetPath: String = ASSET_PATH): ByteArray? = try {

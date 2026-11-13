@@ -26,23 +26,23 @@ import kotlinx.coroutines.withContext
  * Runs the bundled on-device AI-generated-image classifiers via ONNX Runtime Mobile.
  * See internal-docs/MODEL.md for the model cards and the benchmarks behind every constant.
  *
- * Models shipped as app assets ([ModelAssets]):
- * - the primary detector ([ModelConfig]), run on two views of the image;
- * - Community Forensics ViT-S 224 ([CommunityForensicsConfig]) in two copies: the Phase 3
- *   fine-tuned weights for photos ([analyze]) and the published weights for video frames
- *   ([videoFrames]). The fine-tuned copy catches far more AI photos but is worse on video.
+ * Two model pairs are shipped as app assets ([ModelAssets]), each a primary detector
+ * ([ModelConfig], run on two views of the image) and Community Forensics ViT-S 224
+ * ([CommunityForensicsConfig]):
+ * - photos and screen captures ([analyze]): both models retrained in accuracy round 4;
+ * - video frames ([videoFrames]): both models with their published weights. The retrained
+ *   copies read phone photos and newer generators better but are worse on video.
  *
- * When the primary and the matching Community Forensics copy load, the result is their
- * ensemble ([EnsembleConfig]). They make different mistakes (the primary catches more AI
- * photos, Community Forensics is far stronger on video and rarely flags real content), so
- * combined they beat either alone. If a Community Forensics copy is missing or fails to
- * load, the primary runs alone with its own calibration. If the primary is missing, both
- * paths honestly report [SignalAvailability.UNAVAILABLE] rather than fabricating a score.
+ * When both models of a pair load, the result is their ensemble ([EnsembleConfig]). They
+ * make different mistakes, so combined they beat either alone. If a pair's Community
+ * Forensics copy is missing or fails to load, its primary runs alone with its own
+ * calibration. If a pair's primary is missing, that path honestly reports
+ * [SignalAvailability.UNAVAILABLE] rather than fabricating a score.
  *
- * Sessions are created lazily on first use (the video copy on the first video) and cached
- * for the app's lifetime; inference always runs off the main thread. Each signal carries
- * its uncalibrated evidence in [DetectionSignal.rawScore] so video frames can be combined
- * before calibration ([videoProbability]).
+ * Sessions are created lazily on first use (the photo pair on the first photo, the video
+ * pair on the first video) and cached for the app's lifetime; inference always runs off the
+ * main thread. Each signal carries its uncalibrated evidence in [DetectionSignal.rawScore]
+ * so video frames can be combined before calibration ([videoProbability]).
  */
 class AIImageClassifierProvider(private val context: Context) : DetectionProvider {
     override val signalType: SignalType = SignalType.AI_CLASSIFIER
@@ -51,6 +51,7 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
     private val sessionMutex = Mutex()
     private var primarySession: OrtSession? = null
     private var communityForensicsSession: OrtSession? = null
+    private var videoPrimarySession: OrtSession? = null
     private var videoCommunityForensicsSession: OrtSession? = null
     private var sessionInitAttempted = false
     private var videoSessionInitAttempted = false
@@ -59,13 +60,13 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
     val ensembleActive: Boolean get() = primarySession != null && communityForensicsSession != null
 
     /** True once video frames are scored by the ensemble. */
-    val videoEnsembleActive: Boolean get() = primarySession != null && videoCommunityForensicsSession != null
+    val videoEnsembleActive: Boolean get() = videoPrimarySession != null && videoCommunityForensicsSession != null
 
-    /** Photos (and screen captures): the primary + fine-tuned Community Forensics ensemble. */
+    /** Photos (and screen captures): the retrained primary + Community Forensics ensemble. */
     override suspend fun analyze(image: AnalysisInput): DetectionSignal = classify(image, video = false)
 
     /**
-     * Video frames: the primary + published Community Forensics ensemble. Pass this to the
+     * Video frames: the published primary + Community Forensics ensemble. Pass this to the
      * video pipeline, and calibrate the mean frame score with [videoProbability].
      */
     val videoFrames: DetectionProvider = object : DetectionProvider {
@@ -74,10 +75,9 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
     }
 
     private suspend fun classify(image: AnalysisInput, video: Boolean): DetectionSignal = withContext(Dispatchers.Default) {
-        initSessions()
-        if (video) initVideoSession()
+        if (video) initVideoSessions() else initSessions()
         val communityForensics = if (video) videoCommunityForensicsSession else communityForensicsSession
-        val primary = primarySession
+        val primary = (if (video) videoPrimarySession else primarySession)
             ?: return@withContext DetectionSignal.unavailable(signalType, texts.get(R.string.classifier_not_bundled))
 
         try {
@@ -124,8 +124,10 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
             } else if (communityForensicsGap != null) {
                 val combined = EnsembleConfig.combinePhoto(primaryGap, communityForensicsGap)
                 combined to EnsembleConfig.photoProbability(combined)
-            } else {
+            } else if (video) {
                 primaryGap to ModelConfig.calibratedProbability(primaryGap)
+            } else {
+                primaryGap to ModelConfig.photoCalibratedProbability(primaryGap)
             }
             // Only logits and derived numbers are logged - never image bytes, metadata, or
             // file names (see internal-docs/PRIVACY.md "Logging").
@@ -168,15 +170,16 @@ class AIImageClassifierProvider(private val context: Context) : DetectionProvide
         }
     }
 
-    private suspend fun initVideoSession() {
+    private suspend fun initVideoSessions() {
         if (videoSessionInitAttempted) return
         sessionMutex.withLock {
             if (videoSessionInitAttempted) return
             videoSessionInitAttempted = true
-            if (primarySession != null) {
+            videoPrimarySession = loadSession(ModelAssets.VIDEO_ASSET_PATH)
+            if (videoPrimarySession != null) {
                 videoCommunityForensicsSession = loadSession(ModelAssets.VIDEO_COMMUNITY_FORENSICS_ASSET_PATH)
             }
-            Log.i(TAG, "Video classifier ready: ensemble=$videoEnsembleActive")
+            Log.i(TAG, "Video classifier ready: primary=${videoPrimarySession != null} ensemble=$videoEnsembleActive")
         }
     }
 

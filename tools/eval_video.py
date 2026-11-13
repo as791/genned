@@ -23,7 +23,7 @@ Usage:
     python tools/eval_video.py fetch --repo DF26/DF26 --out eval-video/df26 \\
         --real-regex '^real/' --ai-regex '^fake/' \\
         --generator-regex '^fake/[^/]+/([^/]+)/' --per-class 60
-    python tools/eval_video.py eval --model app/src/main/assets/models/ai-image-detector.onnx \\
+    python tools/eval_video.py eval --model app/src/main/assets/models/ai-image-detector-video.onnx \\
         --dataset eval-video/df26 --json-dir results/ --scores-csv results/video-scores.csv
 
 Only numbers leave the runner; videos and frames are never uploaded.

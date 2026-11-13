@@ -2,14 +2,20 @@
 
 ## Status in this repository
 
-**The app ships an ensemble of two bundled models** (see "Ensemble (shipped)"):
-`ai-image-detector.onnx` (35.2 MB) and `commfor-224.onnx` (Community Forensics ViT-S 224,
-MIT, 43.5 MB), both with fp16-stored weights and fp32 math. If the second file is missing
-or fails to load, the first runs alone with its own calibration.
+**The app ships an ensemble of two bundled models** (see "Ensemble (shipped)"), in one
+pair of files for photos and one for video (see "Accuracy round 4"):
+- photos: `ai-image-detector.onnx` (35.2 MB) and `commfor-224.onnx` (Community Forensics
+  ViT-S 224, MIT, 43.5 MB), both retrained by this project;
+- video: `ai-image-detector-video.onnx` and `commfor-224-video.onnx`, the same two models
+  with their published weights.
 
-**The primary classifier model is bundled.** `app/src/main/assets/models/ai-image-detector.onnx`
-is committed to the repository: the `Dafilab/ai-image-detector` model
-below, exported to ONNX (export steps in "Replacing the model file"). It loads and runs on real
+All four store their weights as fp16 and do fp32 math. If a pair's second file is missing
+or fails to load, its first runs alone with its own calibration.
+
+**The primary classifier model is bundled.** `app/src/main/assets/models/ai-image-detector-video.onnx`
+is the `Dafilab/ai-image-detector` model below, exported to ONNX (export steps in
+"Replacing the model file"); `ai-image-detector.onnx` is the same architecture with the
+round 4 weights. Both are committed to the repository. The export loads and runs on real
 devices — debug logs show output like
 `Classifier raw output=[[-3.787038, 2.1529553]] -> P(ai)=0.0026`, i.e. the graph
 accepts the `pixel_values` input and emits two raw logits. If the file is ever
@@ -912,6 +918,116 @@ LOW, against 9% at 0.15. The app therefore has two cut-offs:
 
 `EvidenceEngine` takes the cut-off as a constructor parameter. `tools/evaluate.py`
 mirrors both values: `LOW_THRESHOLD` (photo) and `VIDEO_LOW_THRESHOLD`.
+
+### Accuracy round 4: phone photos, newer generators, attacks (#16)
+
+Both photo models were retrained on GitHub's CPU runners (`Phase 3 train`), with real
+phone photos added as real examples and open-weights generators only. Nothing else in the
+recipe is new: everyday-edit augmentation, edit consistency, universal adversarial training.
+
+| | Community Forensics (Run A) | EfficientNet-B4 (Run B) |
+|---|---|---|
+| Train run | [43083106402](https://github.com/as791/genned/actions/runs/43083106402) | [43242952132](https://github.com/as791/genned/actions/runs/43242952132) |
+| OpenFake / Defactify images per class | 4,000 / 1,000 | 2,400 / 600 |
+| Real phone photos (LAION-Mobile train shards) | 2,000 | 1,200 |
+| Epochs run; weights selected | 5; epoch 5 | 3; epoch 1 |
+
+The files were built and checked in
+[Ensemble build 43339026079](https://github.com/as791/genned/actions/runs/43339026079).
+
+**Held-out results.** 300 images per class, the previous models ("Before", shipped from
+v0.2.0) re-measured on the same images ([Robustness eval 43370045934](https://github.com/as791/genned/actions/runs/43370045934),
+report [43379280573](https://github.com/as791/genned/actions/runs/43379280573)). Bands as
+before the change (LOW < 0.20, HIGH ≥ 0.90), each set scored with its own constants.
+"Run A only" swaps just the Community Forensics file.
+
+| | Before | Run A only | Run A + Run B (shipped) |
+|---|---|---|---|
+| Phone photos (LAION-Mobile test shards): LOW / UNCERTAIN / HIGH | 40.3 / 56.3 / 3.3% | 62.3 / 37.0 / 0.7% | 70.7 / 28.7 / 0.7% |
+| OpenFake: AUC; AI shown HIGH | 0.925; 47.3% | 0.934; 50.3% | 0.953; 56.3% |
+| Defactify: AUC; AI shown HIGH | 0.994; 64.7% | 0.995; 67.7% | 0.997; 79.0% |
+| MJ set: AUC; AI shown HIGH | 0.867; 44.0% | 0.869; 46.0% | 0.896; 50.3% |
+| Everyday edits: failing cells of 57 | 15 | 16 | 17 |
+| Everyday edits: worst AI shown LOW | 16.0% | 15.0% | 14.3% |
+| Everyday edits: mean AI shown HIGH over the 54 edited cells | 48.0% | 50.2% | 58.4% |
+| Worst real shown HIGH, any set × edit | 11.7% | 12.0% | 5.3% |
+
+A second phone-photo set (Unsplash, test-only, never trained on) is reported on its own:
+UNCERTAIN 44.0% before, 35.0% with Run A only, 22.7% with Run A + Run B.
+
+What the targets were and how they came out:
+- **Phone photos, UNCERTAIN down by at least 10 points:** met (−27.6 and −21.3 points).
+- **OpenFake, AI shown HIGH up by at least 5 points, AUC not lower:** met (+9.0).
+- **Everyday edits, fewer than 9 failing cells and no cell with more than 10% of AI shown
+  LOW:** not met. Edited AI images are caught more often in absolute terms, but the
+  failing-cell count measures the drop from unedited images, and those improved more.
+- **Real shown HIGH at most 5% everywhere:** one cell is just over (MJ set after
+  chain_filter, 5.3%; 2.3% before). The previous worst cell (MJ set after WebP 50, 11.7%)
+  is now inside the rule.
+
+Per cell, over the 57 AI cells: AUC is higher in 53 and lower in 4 (all Defactify, by at
+most 0.009); AI shown HIGH is higher in 56 and lower in 1 (MJ set after WebP 50, 52.7 →
+48.0%).
+
+**Deliberate attacks** (reported, not a target;
+[Adversarial eval 43370049130](https://github.com/as791/genned/actions/runs/43370049130),
+Run A only: [43143129714](https://github.com/as791/genned/actions/runs/43143129714)).
+Share of images an attack flips at 8/255, 60 images per row (30 for the black-box attack):
+
+| Attack | Before | Run A only | Run A + Run B |
+|---|---|---|---|
+| Universal pattern, AI made to look real | 65% | 65% | 28% |
+| Transfer from public detectors, AI made to look real | 88% | 90% | 65% |
+| Black-box query attack: direct / after re-saving | 70 / 50% | 70 / 53% | 40 / 30% |
+| Universal or transfer pattern, real made to look AI | 0% | 0% | 0 to 3% |
+| White box | 100% | 100% | 100% |
+
+The Phase 3 gates (universal ≤ 20%, transfer ≤ 30%) are still not met.
+
+**Video keeps the published weights, in a second copy.** The EfficientNet file used to be
+shared by photos and video. With Run B's file in the video path
+([build 43339030487](https://github.com/as791/genned/actions/runs/43339030487), 100
+videos per class):
+
+| Test set | Published file | Run B's file |
+|---|---|---|
+| DeepAction: AUC; AI caught at 5% false alarms | 0.958; 82% | 0.939; 74% |
+| DF26: AUC; AI caught at 5% false alarms | 0.746; 30% | 0.785; 35% |
+
+The rule was "video not worse", so the maintainer chose to keep the published file for
+video as `ai-image-detector-video.onnx` (+35.2 MB per APK). Video results are unchanged.
+A fine-tune of Community Forensics on GenVideo frames was also tried and rejected
+(DeepAction AUC 0.958 → 0.737; [train run 43164376867](https://github.com/as791/genned/actions/runs/43164376867)).
+
+**Calibration and bands.**
+- Photo constants are the build's own (`EnsembleConfig.Photo`): standardization
+  −0.09054 / 3.41626 (primary) and −1.48263 / 6.01668 (Community Forensics), slope 3.94365,
+  intercept 0.27254. Refitting slope and intercept with phone photos counted as real does
+  not qualify: AI shown LOW rises to 13.0% (pooled) or 16.3% (balanced).
+- HIGH stays at 0.90. At 0.85, up to 7.0% of edited real images would show HIGH.
+- **Photo LOW cut-off 0.20 → 0.15**, chosen by the maintainer:
+
+| With the round 4 models | LOW < 0.20 | LOW < 0.15 (shipped) |
+|---|---|---|
+| Phone photos shown UNCERTAIN | 28.7% | 34.3% |
+| Unsplash set shown UNCERTAIN | 22.7% | 29.3% |
+| Worst unedited AI set shown LOW (rule ≤ 10%) | 11.3% | 7.3% |
+| Worst edited AI set shown LOW | 14.3% | 12.7% |
+| Cells with AI shown LOW > 10% | 11 | 3 |
+| Failing edit cells | 17 | 12 |
+
+- **Primary model alone.** If the photo Community Forensics copy does not load, the
+  retrained primary runs alone. Its logit gaps are smaller than the published model's, so
+  it has its own Platt fit (`ModelConfig.PHOTO_CALIBRATION_*`): slope 0.7748, intercept
+  0.1916, from 3,600 scores
+  ([report run 43391428013](https://github.com/as791/genned/actions/runs/43391428013)).
+  It is weaker than the ensemble: at LOW < 0.20 / HIGH ≥ 0.90, up to 8.0% of real phone
+  photos show HIGH and up to 9.7% of AI images show LOW. The video fallback keeps the
+  published model's constants.
+
+**Cost.** The APK grows by about 35 MB (four model files, 157.5 MB in total). The video
+pair loads on the first video, so a session that checks both photos and video holds four
+models in memory instead of three.
 
 ## Replacing the model file
 

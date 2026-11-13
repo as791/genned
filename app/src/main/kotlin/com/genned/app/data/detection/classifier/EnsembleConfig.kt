@@ -3,11 +3,13 @@ package com.genned.app.data.detection.classifier
 import kotlin.math.exp
 
 /**
- * How the bundled detectors are combined. Photos and video pair the primary model with
- * different Community Forensics weights (see internal-docs/MODEL.md "Phase 3"):
- * - **photos:** the Phase 3 fine-tuned copy (`commfor-224.onnx`, train run 37747738638,
- *   open-weights generators only). It catches far more AI photos but is worse on video;
- * - **video:** the published weights (`commfor-224-video.onnx`), unchanged.
+ * How the bundled detectors are combined. Photos and video each use their own pair of
+ * model files (see internal-docs/MODEL.md "Accuracy round 4"):
+ * - **photos:** both models retrained (`ai-image-detector.onnx`, train run 43242952132;
+ *   `commfor-224.onnx`, train run 43083106402; open-weights generators only). They read
+ *   phone photos and newer generators better but are worse on video;
+ * - **video:** both models with their published weights (`ai-image-detector-video.onnx`,
+ *   `commfor-224-video.onnx`), unchanged.
  *
  * Each path has its own constants, fit by tools/ensemble_calibrate.py on the exact files
  * the app bundles:
@@ -16,24 +18,25 @@ import kotlin.math.exp
  *     photo:  P(ai) = sigmoid(SLOPE * s + INTERCEPT)
  *     video:  P(ai) = sigmoid(SLOPE * mean(s over frames) + INTERCEPT)
  *
- * The standardization is fit on photo scores (label-free); the video calibration is fit
- * separately because video frames look different to both models. The Python mirror is
+ * Each standardization is fit on photo scores of that path's own files (label-free); the
+ * video calibration is fit separately because video frames look different to both models.
+ * The Python mirror is
  * tools/evaluate.py APP_ENSEMBLE (photos) and APP_VIDEO_ENSEMBLE.
  */
 object EnsembleConfig {
     const val DISPLAY_NAME = "${ModelConfig.DISPLAY_NAME} + ${CommunityForensicsConfig.DISPLAY_NAME} (ensemble)"
 
-    /** Photos, with the fine-tuned Community Forensics: Ensemble build run 37787974107. */
+    /** Photos, with both retrained models: Ensemble build run 43339026079. */
     object Photo {
-        const val MEAN_PRIMARY = -0.40238
-        const val STD_PRIMARY = 7.98345
-        const val MEAN_CF = -1.26874
-        const val STD_CF = 6.00447
-        const val SLOPE = 3.26446
-        const val INTERCEPT = 0.02569
+        const val MEAN_PRIMARY = -0.09054
+        const val STD_PRIMARY = 3.41626
+        const val MEAN_CF = -1.48263
+        const val STD_CF = 6.01668
+        const val SLOPE = 3.94365
+        const val INTERCEPT = 0.27254
     }
 
-    /** Video, with the published Community Forensics: Ensemble build run 36196623887. */
+    /** Video, with both published models: Ensemble build run 36196623887. */
     object Video {
         const val MEAN_PRIMARY = -0.38708
         const val STD_PRIMARY = 8.00114

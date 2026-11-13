@@ -25,14 +25,14 @@ object OpenSourceLicenses {
 
     val components: List<OpenSourceComponent> = listOf(
         OpenSourceComponent(
-            name = "Dafilab/ai-image-detector (bundled AI-image detector model)",
+            name = "Dafilab/ai-image-detector (bundled AI-image detector model, as published and retrained)",
             license = APACHE_2,
             copyright = "Copyright Dafilab",
             url = "https://huggingface.co/Dafilab/ai-image-detector",
             licenseText = R.raw.license_apache_2_0,
         ),
         OpenSourceComponent(
-            name = "Community Forensics ViT-S 224 (bundled AI-image detector model, as published and fine-tuned)",
+            name = "Community Forensics ViT-S 224 (bundled AI-image detector model, as published and retrained)",
             license = MIT,
             copyright = "Copyright (c) 2025 Jeongsoo Park",
             url = "https://huggingface.co/OwensLab/commfor-model-224",

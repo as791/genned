@@ -56,6 +56,17 @@ class ModelConfigTest {
     }
 
     @Test
+    fun `the retrained photo weights have their own steeper calibration`() {
+        // Their logit gaps are smaller, so the same gap must move the probability further.
+        val gaps = listOf(-20.0, -5.0, -1.0, 0.0, 1.0, 5.0, 20.0)
+        assertThat(gaps.map(ModelConfig::photoCalibratedProbability)).isInStrictOrder()
+        assertThat(ModelConfig.photoCalibratedProbability(3.0)).isGreaterThan(ModelConfig.calibratedProbability(3.0))
+        assertThat(ModelConfig.photoCalibratedProbability(-3.0)).isLessThan(ModelConfig.calibratedProbability(-3.0))
+        assertThat(ModelConfig.photoCalibratedProbability(1e6)).isEqualTo(1f)
+        assertThat(ModelConfig.photoCalibratedProbability(-1e6)).isEqualTo(0f)
+    }
+
+    @Test
     fun `inverting the image calibration recovers the logit gap`() {
         for (gap in listOf(-12.0, -3.0, 0.0, 2.5, 9.0)) {
             val roundTrip = ModelConfig.logitDifferenceFromCalibratedProbability(ModelConfig.calibratedProbability(gap))

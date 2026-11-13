@@ -30,9 +30,11 @@ object EvidenceWeights {
      *
      * Chosen from data by tools/calibrate.py: the lowest threshold at which at most 5% of
      * real images show HIGH in every benchmark dataset x condition. For the shipped models
-     * (photos: Ensemble build run 37787974107; video: run 36196623887) the worst case at
-     * 0.90 is 4.0% of real photos and 2.0% of real videos. With 0.70, up to 39% of real
-     * images in the harder dataset showed HIGH (first model, run 36185656205).
+     * (photos: Ensemble build run 43339026079; video: run 36196623887) the worst case at
+     * 0.90 is 3.2% of real photos and 2.0% of real videos. After everyday edits it is 5.3%
+     * of real photos (Robustness eval run 43370045934); 0.85 would show up to 7.0%. With
+     * 0.70, up to 39% of real images in the harder dataset showed HIGH (first model, run
+     * 36185656205).
      */
     const val HIGH_THRESHOLD = 0.90f
 
@@ -46,14 +48,16 @@ object EvidenceWeights {
     const val LOW_THRESHOLD = 0.15f
 
     /**
-     * The LOW cut-off for photos and screen captures (see [LOW_THRESHOLD] for video).
-     * At 0.20, at most 8.7% of AI photos show LOW on unedited benchmark images (Robustness
-     * eval run 38531209175; 9.2% in Ensemble build 37787974107), inside the 10% rule, and
-     * real phone photos read UNCERTAIN 53% of the time instead of 61%. The cost: under
-     * everyday edits (grain, sharpening, screenshot-and-repost) up to 20% of AI photos show
-     * LOW, against 14.7% at 0.15. Chosen by the maintainer for fewer UNCERTAIN results.
+     * The LOW cut-off for photos and screen captures (see [LOW_THRESHOLD] for video). It is
+     * chosen separately from the video one and happens to be equal today.
+     * At 0.15, at most 7.3% of AI photos show LOW on unedited benchmark images (Robustness
+     * eval run 43370045934, report run 43379280573), inside the 10% rule; under everyday
+     * edits (grain, sharpening, screenshot-and-repost) it is up to 12.7%. Real phone photos
+     * read UNCERTAIN 34% of the time. At 0.20 they would read UNCERTAIN 29% of the time,
+     * but 11.3% of unedited and 14.3% of edited AI photos would show LOW. Chosen by the
+     * maintainer with the accuracy round 4 models; it was 0.20 from v0.2.2 to v0.4.0.
      */
-    const val PHOTO_LOW_THRESHOLD = 0.20f
+    const val PHOTO_LOW_THRESHOLD = 0.15f
 
     /** Likelihood reported when no signal produced usable evidence at all. */
     const val NO_EVIDENCE_LIKELIHOOD = 0.5f

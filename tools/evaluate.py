@@ -111,25 +111,29 @@ INPUT_NAME = "pixel_values"
 
 # Keep these in sync with EvidenceWeights.kt (domain module). LOW_THRESHOLD is the photo
 # cut-off (PHOTO_LOW_THRESHOLD); video uses VIDEO_LOW_THRESHOLD (LOW_THRESHOLD there).
-LOW_THRESHOLD = 0.20
+LOW_THRESHOLD = 0.15
 VIDEO_LOW_THRESHOLD = 0.15
 HIGH_THRESHOLD = 0.90
 
-# Keep these in sync with ModelConfig.CALIBRATION_SLOPE / CALIBRATION_INTERCEPT and the
-# app's two-view ("avg") preprocessing. Pass --calibration app to evaluate the app as shipped.
+# The primary model alone (the app's fallback without Community Forensics), two-view ("avg")
+# preprocessing. Keep in sync with ModelConfig.
+# Published weights (models/ai-image-detector-video.onnx): CALIBRATION_SLOPE / _INTERCEPT.
 APP_CALIBRATION = (0.2252, 0.0494)
+# Retrained photo weights (models/ai-image-detector.onnx): PHOTO_CALIBRATION_SLOPE / _INTERCEPT,
+# fit by tools/calibration_refit.py in Robustness eval run 43391428013. --calibration app uses it.
+APP_PHOTO_CALIBRATION = (0.7748, 0.1916)
 # Video path (VideoSignalAggregator): mean per-frame logit gap -> this calibration.
 # Keep in sync with ModelConfig.VIDEO_CALIBRATION_* (fit on Video eval run 36190406439).
 APP_VIDEO_CALIBRATION = (0.2071, -1.3977)
 # The shipped ensembles (EnsembleConfig.kt). Keep in sync with EnsembleConfig.
-# Photos: primary + the Phase 3 fine-tuned Community Forensics (models/commfor-224.onnx),
-# fit by tools/ensemble_calibrate.py in Ensemble build run 37787974107.
+# Photos: both models retrained in accuracy round 4 (models/ai-image-detector.onnx,
+# models/commfor-224.onnx), fit by tools/ensemble_calibrate.py in Ensemble build run 43339026079.
 APP_ENSEMBLE = {
-    "mean_d": -0.40238, "std_d": 7.98345, "mean_c": -1.26874, "std_c": 6.00447,
-    "photo": (3.26446, 0.02569),
+    "mean_d": -0.09054, "std_d": 3.41626, "mean_c": -1.48263, "std_c": 6.01668,
+    "photo": (3.94365, 0.27254),
 }
-# Video frames: primary + the published Community Forensics (models/commfor-224-video.onnx),
-# fit in Ensemble build run 36196623887.
+# Video frames: both models with their published weights (models/ai-image-detector-video.onnx,
+# models/commfor-224-video.onnx), fit in Ensemble build run 36196623887.
 APP_VIDEO_ENSEMBLE = {
     "mean_d": -0.38708, "std_d": 8.00114, "mean_c": -3.96926, "std_c": 4.37424,
     "video": (3.49213, -1.85881),
@@ -715,7 +719,7 @@ def main() -> None:
     slope, intercept = 1.0, 0.0
     if args.calibration:
         try:
-            slope, intercept = (APP_CALIBRATION if args.calibration == "app"
+            slope, intercept = (APP_PHOTO_CALIBRATION if args.calibration == "app"
                                 else (float(v) for v in args.calibration.split(",")))
         except ValueError:
             parser.error("--calibration must be SLOPE,INTERCEPT, e.g. 0.4,-0.1")

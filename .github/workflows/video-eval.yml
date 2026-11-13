@@ -69,7 +69,7 @@ jobs:
             name="$(basename "$dir")"
             echo "::group::$name"
             python tools/eval_video.py eval \
-              --model app/src/main/assets/models/ai-image-detector.onnx \
+              --model app/src/main/assets/models/ai-image-detector-video.onnx \
               --dataset "$dir" --dataset-name "$name" \
               --json-dir eval-results --scores-csv eval-results/video-scores.csv \
               --candidates "${{ inputs.candidates }}" \

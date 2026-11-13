@@ -35,7 +35,10 @@ object ModelConfig {
     const val BASE_CONFIDENCE = 0.75f
 
     /**
-     * Platt scaling of the raw logit gap: P(ai) = sigmoid(SLOPE * (ai - human) + INTERCEPT).
+     * Platt scaling of the raw logit gap, for the **published weights**
+     * (`ai-image-detector-video.onnx`): P(ai) = sigmoid(SLOPE * (ai - human) + INTERCEPT).
+     * The app uses it for a single video frame when the video Community Forensics copy did
+     * not load; the retrained photo copy has its own ([PHOTO_CALIBRATION_SLOPE]).
      *
      * The raw model is badly overconfident: in the first benchmark 60-74% of its
      * scores were above 99% or below 1%, while scores above 90% were only 72-93%
@@ -46,6 +49,19 @@ object ModelConfig {
      */
     const val CALIBRATION_SLOPE = 0.2252f
     const val CALIBRATION_INTERCEPT = 0.0494f
+
+    /**
+     * The same scaling for the **retrained photo weights** (`ai-image-detector.onnx`,
+     * accuracy round 4), used only when the photo Community Forensics copy did not load.
+     * The retrained model's logit gaps are much smaller (standard deviation 3.4, against 8.0
+     * for the published weights), so it needs its own fit: 3,600 per-image scores (2 public
+     * datasets x 3 conditions, two-view preprocessing) in Robustness eval run 43391428013.
+     *
+     * This fallback is weaker than the ensemble: 5.0% of unedited real phone photos show
+     * HIGH (ensemble: 0.7%), and 8.0% after a social-media style re-save.
+     */
+    const val PHOTO_CALIBRATION_SLOPE = 0.7748f
+    const val PHOTO_CALIBRATION_INTERCEPT = 0.1916f
 
     /**
      * Separate calibration for video: P(ai) = sigmoid(SLOPE * meanGap + INTERCEPT), where
@@ -97,9 +113,16 @@ object ModelConfig {
         }
     }
 
-    /** Calibrated P(ai) for a logit gap, e.g. the mean of the gaps from each input view. */
+    /**
+     * Calibrated P(ai) for a logit gap of the published weights, e.g. the mean of the gaps
+     * from each input view.
+     */
     fun calibratedProbability(logitDifference: Double): Float =
         sigmoid(CALIBRATION_SLOPE * logitDifference + CALIBRATION_INTERCEPT)
+
+    /** Calibrated P(ai) for a logit gap of the retrained photo weights. */
+    fun photoCalibratedProbability(logitDifference: Double): Float =
+        sigmoid(PHOTO_CALIBRATION_SLOPE * logitDifference + PHOTO_CALIBRATION_INTERCEPT)
 
     /**
      * Inverse of [calibratedProbability]: recovers a frame's logit gap from its (image-

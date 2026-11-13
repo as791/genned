@@ -195,9 +195,10 @@ only ever bundled at build time.
 - ONNX Runtime Mobile (`com.microsoft.onnxruntime:onnxruntime-android`): MIT.
 - Bundled classifier models: `Dafilab/ai-image-detector` (Apache-2.0) and
   Community Forensics ViT-S 224 (`OwensLab/commfor-model-224`, MIT; Park & Owens, CVPR 2025),
-  as published and as a copy fine-tuned for photos by this project (MIT). The fine-tuning
-  used images from OpenFake (`ComplexDataLab/OpenFake`, CC-BY-SA-4.0, open-weights
-  generators only) and the Defactify dataset.
+  each as published (used for video) and as a copy retrained for photos by this project
+  (same licenses). The retraining used images from OpenFake (`ComplexDataLab/OpenFake`,
+  CC-BY-SA-4.0, open-weights generators only), the Defactify dataset, and real phone
+  photos from LAION-Mobile (`sumathiselvan/LAION-Mobile-streaming`).
 - `contentauth/c2pa-android` (Content Credentials, includes the C2PA Rust SDK): dual
   MIT/Apache-2.0. JNA: Apache-2.0. OkHttp: Apache-2.0.
 - Bundled trust lists: C2PA Trust List (CC-BY-4.0, C2PA); Content Authenticity
@@ -207,12 +208,12 @@ only ever bundled at build time.
 
 - **The visual classifier ships with the app.** It is an ensemble of two
   on-device models, `Dafilab/ai-image-detector` and Community Forensics ViT-S
-  224, in `app/src/main/assets/models/` (about 122 MB). Photos use a copy of
-  Community Forensics fine-tuned on newer generators and everyday edits; video
-  keeps the published weights, which are better on video. Combined, the models
-  beat either one alone. On the harder photo benchmark they catch 45% of AI
-  images at a 5% false-alarm rate (the single model caught 30%); on the easier
-  one, 97% (it caught 73%). If a model file is ever missing from a build, the
+  224, in `app/src/main/assets/models/` (about 157 MB). Photos use copies of
+  both models retrained on newer generators, everyday edits and real phone
+  photos; video keeps the published weights, because the retrained copies were
+  not better on video. Combined, the models beat either one alone. On the harder photo benchmark
+  they catch 53% of AI images at a 5% false-alarm rate (the first single model
+  caught 30%); on the easier one, 98% (it caught 73%). If a model file is ever missing from a build, the
   app falls back to the remaining model, or reports the classifier as
   unavailable, rather than faking a score.
 - **Measured accuracy is moderate.** On two public real-vs-AI image datasets
@@ -245,11 +246,11 @@ only ever bundled at build time.
   direction.
 - **Scores are calibrated, and bands are set to avoid false alarms.** The raw
   classifier's scores are rescaled to match how often it's actually right, and
-  "HIGH" needs 90% or more. "LOW" needs under 20% for photos and under 15% for
-  video. In the benchmarks, at most 5% of real images were labeled HIGH, and at most
-  10% of unedited AI images were labeled LOW (up to 20% after edits such as grain or
-  sharpening). The trade-off is that many images honestly come out UNCERTAIN: about
-  half of real phone photos.
+  "HIGH" needs 90% or more and "LOW" needs under 15%. In the benchmarks, about 5%
+  of real images at most were labeled HIGH, and at most 10% of unedited AI images
+  were labeled LOW (up to 13% after edits such as grain or sharpening). The
+  trade-off is that many images honestly come out UNCERTAIN: about a third of real
+  phone photos.
 
 ## Contributing
 

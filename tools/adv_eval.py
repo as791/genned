@@ -74,8 +74,8 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from calibrate import fit_platt  # noqa: E402
 from evaluate import (  # noqa: E402
-    APP_CALIBRATION,
     APP_ENSEMBLE,
+    APP_PHOTO_CALIBRATION,
     HIGH_THRESHOLD,
     INPUT_NAME,
     INPUT_SIZE,
@@ -263,7 +263,7 @@ class Defense:
     name = "none"
     randomized = False
     # The detector's own shipped calibration; set by main() from --model.
-    shipped_calibration = APP_CALIBRATION
+    shipped_calibration = APP_PHOTO_CALIBRATION
 
     def __init__(self, detector: torch.nn.Module):
         self.detector = detector
