@@ -178,9 +178,10 @@ The AAB and `mapping.txt` stay in that run's `genned-release` artifact.
 
 ## How to replace/update the ML model
 
-The bundled model lives at `app/src/main/assets/models/ai-image-detector.onnx`.
-To replace it, drop a verified `.onnx` file at that path — nothing else needs to
-change; the classifier and Settings screen pick it up automatically.
+The bundled models live in `app/src/main/assets/models/` (four files: a pair for
+photos and a pair for video; see the `README.md` there). To replace one, drop a
+verified `.onnx` file at the same path and refit its constants as described in
+`internal-docs/MODEL.md` "Replacing the model file".
 `tools/convert_model.py` documents exporting the current model
 (`Dafilab/ai-image-detector`, Apache-2.0) from Hugging Face, and
 `tools/evaluate.py` measures accuracy/precision/recall/F1/confusion matrix
