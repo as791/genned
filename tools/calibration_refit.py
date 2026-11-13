@@ -21,6 +21,10 @@ the check datasets (e.g. OpenFake) are never fit on. Phone photos are reported h
 A candidate qualifies when, on every dataset x condition, real shown HIGH <= 5% and AI shown
 LOW <= 10% at the app's bands, and fewer unedited phone photos read UNCERTAIN than shipped.
 
+The report ends with the primary model alone: P(ai) = sigmoid(slope * gap + intercept) on its
+two-view logit gap, fit the shipped way on the fit datasets that hold AI images. That is the
+app's fallback when Community Forensics does not load (ModelConfig.PHOTO_CALIBRATION_*).
+
 Usage:
     python tools/calibration_refit.py results/ [--fit defactify,mj-dalle-sd-nbp,phone-photos]
         [--check openfake] [--holdout phone-photos] [--json refit.json]
@@ -114,6 +118,34 @@ def rule_bands(rows: list[dict], key: str) -> tuple[float, float]:
     low = next((t for t in reversed(lows) if worst_case(calib, 1.0, 0.0, 1.1, t)[1] <= MAX_AI_LOW),
                lows[0] if lows else LOW_GRID[0])
     return high, low
+
+
+def primary_alone(rows: list[dict], fit_sets: list[str], datasets: list[str]) -> tuple[list[str], dict]:
+    """Platt fit of the primary model's own logit gap, and how it reads at the app's bands."""
+    with_ai = {r["dataset"] for r in rows if r["is_ai"]}
+    fit_rows = [r for r in rows if r["dataset"] in fit_sets and r["dataset"] in with_ai]
+    slope, intercept = fit_platt_weighted(np.array([r["d"] for r in fit_rows]),
+                                          np.array([r["is_ai"] for r in fit_rows]), np.ones(len(fit_rows)))
+    out = ["\n## Primary model alone (the app's fallback without Community Forensics)\n",
+           f"Platt fit on its two-view logit gap, {len(fit_rows)} scores from "
+           f"{', '.join(d for d in fit_sets if d in with_ai)}: **slope = {slope:.4f}, intercept = {intercept:.4f}**.\n",
+           "| Dataset | Condition | Real LOW / UNCERTAIN / HIGH | AI LOW / UNCERTAIN / HIGH |", "|---|---|---|---|"]
+    worst_real_high, worst_ai_low = 0.0, 0.0
+    for d in datasets:
+        for c in CONDITIONS:
+            sub = [r for r in rows if r["dataset"] == d and r["condition"] == c]
+            if not sub:
+                continue
+            p = {k: bands(sigmoid(slope * np.array([r["d"] for r in sub if r["is_ai"] == k]) + intercept))
+                 for k in (0, 1)}
+            if p[0][2] == p[0][2]:
+                worst_real_high = max(worst_real_high, p[0][2])
+            if p[1][0] == p[1][0]:
+                worst_ai_low = max(worst_ai_low, p[1][0])
+            out.append(f"| {d} | {c} | " + " | ".join(" / ".join(pct(v) for v in p[k]) for k in (0, 1)) + " |")
+    out.append(f"\nWorst real shown HIGH: {pct(worst_real_high)}. Worst AI shown LOW: {pct(worst_ai_low)}.")
+    return out, {"slope": slope, "intercept": intercept, "n": len(fit_rows),
+                 "worst_real_high": worst_real_high, "worst_ai_low": worst_ai_low}
 
 
 def pct(v: float) -> str:
@@ -233,6 +265,8 @@ def main() -> None:
                    f"{pct(s['holdout_low_original'])} / {pct(s['holdout_uncertain_original'])} | "
                    f"HIGH ≥ {s['rule_high']:.2f}, LOW < {s['rule_low']:.2f} | "
                    f"{'–' if n == base else ('**yes**' if s['qualifies'] else 'no')} |")
+    alone_lines, summary["primary alone"] = primary_alone(rows, fit_sets, datasets)
+    out += alone_lines
     print("\n".join(out))
     if args.json:
         args.json.write_text(json.dumps(summary, indent=2))
