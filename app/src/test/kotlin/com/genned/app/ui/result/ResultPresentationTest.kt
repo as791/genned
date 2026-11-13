@@ -84,9 +84,9 @@ class ResultPresentationTest {
         // 87% is under the 90% needed to say "likely AI", whatever was checked.
         assertThat(ResultPresentation.uncertainHint(0.87f, MediaKind.PHOTO)).isEqualTo(UncertainHint.BelowHighCutOff(90))
         assertThat(ResultPresentation.uncertainHint(0.5f, null)).isEqualTo(UncertainHint.BelowHighCutOff(90))
-        // Low scores: photos and screen captures need under 20%, videos under 15%.
-        assertThat(ResultPresentation.uncertainHint(0.3f, MediaKind.PHOTO)).isEqualTo(UncertainHint.AboveLowCutOff(20))
-        assertThat(ResultPresentation.uncertainHint(0.3f, MediaKind.SCREEN)).isEqualTo(UncertainHint.AboveLowCutOff(20))
+        // Low scores: photos, screen captures and videos all need under 15%.
+        assertThat(ResultPresentation.uncertainHint(0.3f, MediaKind.PHOTO)).isEqualTo(UncertainHint.AboveLowCutOff(15))
+        assertThat(ResultPresentation.uncertainHint(0.3f, MediaKind.SCREEN)).isEqualTo(UncertainHint.AboveLowCutOff(15))
         assertThat(ResultPresentation.uncertainHint(0.3f, MediaKind.VIDEO)).isEqualTo(UncertainHint.AboveLowCutOff(15))
         // A check saved before the kind was recorded: no number is claimed.
         assertThat(ResultPresentation.uncertainHint(0.3f, null)).isEqualTo(UncertainHint.Generic)

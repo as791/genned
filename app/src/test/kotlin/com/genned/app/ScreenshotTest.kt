@@ -137,7 +137,7 @@ class ScreenshotTest {
     )
 
     private fun save(signals: List<DetectionSignal>, kind: MediaKind = MediaKind.PHOTO): Long = runBlocking {
-        // The same LOW cut-offs the app uses: photos and screen captures 0.20, video 0.15.
+        // The same LOW cut-offs the app uses (photos and screen captures, and video).
         val lowCutOff = if (kind == MediaKind.VIDEO) EvidenceWeights.LOW_THRESHOLD else EvidenceWeights.PHOTO_LOW_THRESHOLD
         val result: AnalysisResult = EvidenceEngine(lowCutOff).aggregate(signals)
         repository.save(result, picture(), kind)
