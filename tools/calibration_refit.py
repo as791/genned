@@ -4,10 +4,13 @@
 The photo path scores an image as P(ai) = sigmoid(slope * s + intercept), where s is the
 ensemble score with the shipped standardization (evaluate.APP_ENSEMBLE). Only slope and
 intercept are refit here; the models and the standardization stay as shipped.
+With --ensemble-params (a candidate model set's ensemble-params.json), the standardization
+and the starting slope/intercept are that candidate's instead, and the first column reads
+"as built".
 
 Inputs are the per-image scores CSVs Robustness eval writes (scores-<dataset>.csv, both
 models). Candidates:
-- shipped:  the app's current constants;
+- shipped:  the app's current constants (as built: the candidate's own, with --ensemble-params);
 - pooled:   Platt fit on the fit datasets, every image weighted equally (the shipped method);
 - balanced: the same, but each dataset carries equal total weight.
 
@@ -21,6 +24,7 @@ LOW <= 10% at the app's bands, and fewer unedited phone photos read UNCERTAIN th
 Usage:
     python tools/calibration_refit.py results/ [--fit defactify,mj-dalle-sd-nbp,phone-photos]
         [--check openfake] [--holdout phone-photos] [--json refit.json]
+        [--ensemble-params ensemble-params.json]
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from calibrate import HIGH_GRID, LOW_GRID, sigmoid, worst_case  # noqa: E402
 from ensemble_calibrate import load_pairs  # noqa: E402
-from evaluate import APP_ENSEMBLE, HIGH_THRESHOLD, LOW_THRESHOLD  # noqa: E402
+from evaluate import APP_ENSEMBLE, HIGH_THRESHOLD, LOW_THRESHOLD, load_ensemble_params  # noqa: E402
 
 CONDITIONS = ("original", "jpeg75", "social")
 MAX_REAL_HIGH, MAX_AI_LOW, MIN_GAP = 0.05, 0.10, 0.20
@@ -75,8 +79,8 @@ def fold_of(image: str) -> int:
     return zlib.crc32(Path(image).name.encode()) % 2
 
 
-def ensemble_score(d: float, c: float) -> float:
-    e = APP_ENSEMBLE
+def ensemble_score(d: float, c: float, params: dict | None = None) -> float:
+    e = params or APP_ENSEMBLE
     return ((d - e["mean_d"]) / e["std_d"] + (c - e["mean_c"]) / e["std_c"]) / 2.0
 
 
@@ -123,7 +127,11 @@ def main() -> None:
     parser.add_argument("--check", default="openfake")
     parser.add_argument("--holdout", default="phone-photos", help="Dataset reported held-out (2-fold)")
     parser.add_argument("--json", type=Path, default=None)
+    parser.add_argument("--ensemble-params", type=Path, default=None,
+                        help="ensemble-params.json for a candidate model set (default: the app's APP_ENSEMBLE)")
     args = parser.parse_args()
+    params = load_ensemble_params(args.ensemble_params) if args.ensemble_params else APP_ENSEMBLE
+    base = "as built" if args.ensemble_params else "shipped"
 
     fit_sets = [d for d in args.fit.split(",") if d]
     check_sets = [d for d in args.check.split(",") if d]
@@ -135,13 +143,13 @@ def main() -> None:
             continue
         rows += [r for r in load_pairs(path, "avg", "native") if r["condition"] in CONDITIONS]
     for r in rows:
-        r["s"] = ensemble_score(r["d"], r["c"])
+        r["s"] = ensemble_score(r["d"], r["c"], params)
     fit_rows = [r for r in rows if r["dataset"] in fit_sets]
     if not fit_rows or not any(r["is_ai"] for r in fit_rows):
         sys.exit("No fit rows with AI images - check --fit and the results folder.")
 
-    shipped = APP_ENSEMBLE["photo"]
-    candidates: dict[str, tuple[float, float]] = {"shipped": shipped}
+    shipped = params["photo"]
+    candidates: dict[str, tuple[float, float]] = {base: shipped}
     for name, balanced in (("pooled", False), ("balanced", True)):
         candidates[name] = fit(fit_rows, balanced)
         for r in rows:
@@ -154,13 +162,14 @@ def main() -> None:
                 if r["dataset"] == args.holdout and fold_of(r["image"]) == k:
                     r[name] = float(sigmoid(slope * r["s"] + intercept))
     for r in rows:
-        r["shipped"] = float(sigmoid(shipped[0] * r["s"] + shipped[1]))
+        r[base] = float(sigmoid(shipped[0] * r["s"] + shipped[1]))
 
     names = list(candidates)
+    whose = "the candidate set's own" if args.ensemble_params else "the shipped"
     datasets = [d for d in fit_sets + check_sets if any(r["dataset"] == d for r in rows)]
     out = ["# Photo calibration refit: phone photos counted as real\n",
-           f"Ensemble score with the shipped standardization; only slope/intercept change. Fit on "
-           f"{', '.join(fit_sets)}; {', '.join(check_sets) or 'nothing'} is check-only (never fit on). "
+           f"Ensemble score with {whose} standardization; only slope/intercept change. Fit on "
+           f"{', '.join(fit_sets)}; {', '.join(check_sets) or 'nothing'} {'are' if len(check_sets) > 1 else 'is'} check-only (never fit on). "
            f"`{args.holdout}` is reported held-out (2-fold by image). Bands as in the app: LOW < "
            f"{LOW_THRESHOLD:.0%}, HIGH ≥ {HIGH_THRESHOLD:.0%}.\n",
            "| Candidate | Slope | Intercept |", "|---|---|---|"]
@@ -210,9 +219,9 @@ def main() -> None:
                       "rule_high": high, "rule_low": low}
     for n in names:
         s = summary[n]
-        s["qualifies"] = bool(n != "shipped" and s["worst_real_high"] <= MAX_REAL_HIGH
+        s["qualifies"] = bool(n != base and s["worst_real_high"] <= MAX_REAL_HIGH
                               and s["worst_ai_low"] <= MAX_AI_LOW
-                              and s["holdout_uncertain_original"] < phone_unc["shipped"])
+                              and s["holdout_uncertain_original"] < phone_unc[base])
 
     out += ["\n## Summary (worst case over every dataset × condition)\n",
             f"| Candidate | Real shown HIGH (≤ {MAX_REAL_HIGH:.0%}) | AI shown LOW (≤ {MAX_AI_LOW:.0%}) | "
@@ -223,7 +232,7 @@ def main() -> None:
         out.append(f"| {n} | {pct(s['worst_real_high'])} | {pct(s['worst_ai_low'])} | {pct(s['min_ai_high'])} | "
                    f"{pct(s['holdout_low_original'])} / {pct(s['holdout_uncertain_original'])} | "
                    f"HIGH ≥ {s['rule_high']:.2f}, LOW < {s['rule_low']:.2f} | "
-                   f"{'–' if n == 'shipped' else ('**yes**' if s['qualifies'] else 'no')} |")
+                   f"{'–' if n == base else ('**yes**' if s['qualifies'] else 'no')} |")
     print("\n".join(out))
     if args.json:
         args.json.write_text(json.dumps(summary, indent=2))

@@ -20,7 +20,7 @@ on:
         description: Evaluate the model files + ensemble-params.json from this branch (empty = main's app models)
         default: ''
       report_run_id:
-        description: Only re-print the report from this earlier run's results (nothing is scored again); empty = evaluate
+        description: Only re-print the report from this earlier run's results (nothing is scored again; give the same assets_branch); empty = evaluate
         default: ''
 
 permissions:
@@ -113,6 +113,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The band sweep and the calibration refit rebuild the photo score from both models'
+      # logits, so for a candidate set they need that set's constants, not the shipped ones.
+      - name: Use the candidate constants
+        if: inputs.assets_branch != ''
+        env:
+          BRANCH: ${{ inputs.assets_branch }}
+        run: |
+          git fetch --depth 1 origin "$BRANCH"
+          git checkout FETCH_HEAD -- internal-docs/ensemble-params.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -125,6 +134,8 @@ jobs:
           run-id: ${{ inputs.report_run_id || github.run_id }}
           github-token: ${{ github.token }}
       - name: Report
+        env:
+          PARAMS: ${{ inputs.assets_branch != '' && 'internal-docs/ensemble-params.json' || '' }}
         run: |
           # Each part is printed even if another can't run (a run with only real photos has
           # nothing to fit a calibration on, for example).
@@ -132,13 +143,15 @@ jobs:
           {
             python tools/edit_report.py results || echo "(edit report: could not run on these results)"
             echo
-            python tools/band_sweep.py results || echo "(band sweep: could not run on these results)"
+            python tools/band_sweep.py results --highs 0.85 ${PARAMS:+--ensemble-params "$PARAMS"} \
+              || echo "(band sweep: could not run on these results)"
             echo
             python tools/eval_report.py results || echo "(summary report: could not run on these results)"
             # With real phone photos in the run: test refitting the photo calibration on them.
             if [ -f results/scores-phone-photos.csv ]; then
               echo
-              python tools/calibration_refit.py results --json results/calibration-refit.json \
+              python tools/calibration_refit.py results --check openfake,unsplash-phone \
+                --json results/calibration-refit.json ${PARAMS:+--ensemble-params "$PARAMS"} \
                 || echo "(calibration refit: not run, it needs AI images in the same run)"
             fi
           } > results/report.md

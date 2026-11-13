@@ -425,6 +425,98 @@ class BandSweepTest(unittest.TestCase):
         self.assertGreaterEqual(lo2, lo1)
         self.assertAlmostEqual(lo1 + unc1, lo2 + unc2)
 
+    @staticmethod
+    def _rows():
+        rng = np.random.default_rng(4)
+        rows = []
+        for dataset, classes in (("bench", (0, 1)), ("phone-photos", (0,))):
+            for condition in ("original", "grain"):
+                for is_ai in classes:
+                    for i in range(60):
+                        rows.append({"dataset": dataset, "condition": condition, "image": f"{is_ai}/{i}.jpg",
+                                     "is_ai": is_ai, "d": float(rng.normal(4 * is_ai - 2, 3)),
+                                     "c": float(rng.normal(6 * is_ai - 3, 4))})
+        return rows
+
+    def test_sweep_uses_the_candidate_constants_when_given(self):
+        from band_sweep import app_probability, sweep
+
+        rows = self._rows()
+        params = {"mean_d": 0.5, "std_d": 3.0, "mean_c": -1.0, "std_c": 5.0, "photo": (4.0, 0.3)}
+        np.testing.assert_allclose(
+            app_probability(rows[:5], params),
+            [1 / (1 + np.exp(-(4.0 * evaluate.ensemble_score(r["d"], r["c"], params) + 0.3))) for r in rows[:5]])
+        np.testing.assert_allclose(
+            app_probability(rows[:5]),
+            [1 / (1 + np.exp(-(evaluate.APP_ENSEMBLE["photo"][0] * evaluate.ensemble_score(r["d"], r["c"])
+                               + evaluate.APP_ENSEMBLE["photo"][1]))) for r in rows[:5]])
+        out, _ = sweep(self._rows(), [0.20], params)
+        self.assertIn("candidate set's own constants", "\n".join(out))
+        out, _ = sweep(self._rows(), [0.20])
+        self.assertIn("the shipped constants", "\n".join(out))
+
+    def test_sweep_summary_has_a_row_per_low_and_high_and_a_column_per_real_only_set(self):
+        from band_sweep import sweep
+
+        out, summary = sweep(self._rows(), [0.15, 0.20], None, [0.85])
+        self.assertEqual(set(summary), {(0.15, 0.90), (0.20, 0.90), (0.15, 0.85), (0.20, 0.85)})
+        for (lo, hi), s in summary.items():
+            self.assertEqual(list(s["real_only"]), ["phone-photos"])
+            self.assertEqual(s["real_only"]["phone-photos"], s["phone"])
+            self.assertAlmostEqual(sum(s["phone"]), 1.0)
+        # A lower HIGH cut-off can only show more images HIGH; LOW is untouched.
+        self.assertGreaterEqual(summary[(0.20, 0.85)]["worst_real_high"], summary[(0.20, 0.90)]["worst_real_high"])
+        self.assertEqual(summary[(0.20, 0.85)]["worst_ai_low_edits"], summary[(0.20, 0.90)]["worst_ai_low_edits"])
+        text = "\n".join(out)
+        self.assertIn("phone-photos (original) LOW / UNCERTAIN / HIGH", text)
+        header = next(l for l in out if l.startswith("| LOW cut-off"))
+        rows = [l for l in out if l.startswith("| 0.")]
+        self.assertEqual(len(rows), 4)
+        self.assertTrue(all(l.count("|") == header.count("|") for l in rows))
+
+
+class CalibrationRefitParamsTest(unittest.TestCase):
+    def test_refit_reads_the_candidate_constants(self):
+        import csv
+        import json
+        import subprocess
+        import sys
+        import tempfile
+
+        from ensemble_calibrate import BUNDLED_MODEL_NAME, COMMFOR_MODEL_NAME
+
+        rng = np.random.default_rng(5)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            for dataset, classes in (("defactify", (0, 1)), ("phone-photos", (0,)), ("unsplash-phone", (0,))):
+                with (tmp / f"scores-{dataset}.csv").open("w", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(["dataset", "condition", "image", "is_ai", "model", "preprocess", "logit_diff"])
+                    for condition in ("original", "jpeg75", "social"):
+                        for is_ai in classes:
+                            for i in range(80):
+                                image = f"{'ai' if is_ai else 'real'}/{i}.jpg"
+                                w.writerow([dataset, condition, image, is_ai, BUNDLED_MODEL_NAME, "avg",
+                                            rng.normal(4 * is_ai - 2, 2)])
+                                w.writerow([dataset, condition, image, is_ai, COMMFOR_MODEL_NAME, "native",
+                                            rng.normal(8 * is_ai - 4, 3)])
+            params = tmp / "ensemble-params.json"
+            params.write_text(json.dumps({
+                "standardization": {"mean_d": 0.0, "std_d": 3.0, "mean_c": 0.0, "std_c": 5.0},
+                "photo": {"slope": 4.5, "intercept": 0.25}, "video": {"slope": 1.0, "intercept": 0.0}}))
+            tool = Path(evaluate.__file__).with_name("calibration_refit.py")
+            run = lambda *extra: subprocess.run(  # noqa: E731
+                [sys.executable, str(tool), str(tmp), "--check", "unsplash-phone", "--json", str(tmp / "out.json"), *extra],
+                capture_output=True, text=True, check=True).stdout
+            built = run("--ensemble-params", str(params))
+            self.assertIn("| as built | 4.50000 | 0.25000 |", built)
+            self.assertIn("candidate set's own standardization", built)
+            self.assertIn("| unsplash-phone | original | 80 |", built)
+            self.assertEqual(json.loads((tmp / "out.json").read_text())["as built"]["slope"], 4.5)
+            shipped = run()
+            self.assertIn(f"| shipped | {evaluate.APP_ENSEMBLE['photo'][0]:.5f} |", shipped)
+            self.assertIn("the shipped standardization", shipped)
+
 
 if __name__ == "__main__":
     unittest.main()
