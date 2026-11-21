@@ -18,6 +18,11 @@ use `screenshots/` there.
 
 The screens come from the app's screenshot tests (v0.5.0) and show sample results.
 
+## Featured image
+
+`featured/`: the store banner. `genned-featured-1024x500.png` is Google Play's feature
+graphic size; `genned-featured-1920x1080.png` is for stores that ask for a 16:9 image.
+
 ## Icon
 
 `../site/assets/brand/`: `icon-square-512.png` for Google Play (512 × 512; the store
