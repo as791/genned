@@ -23,7 +23,7 @@ jobs:
         run: |
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install "onnxruntime>=1.18,<2" "pillow>=10,<12" "numpy>=1.26,<3" "timm>=1.0,<2" \
-            "huggingface_hub>=0.23,<1"
+            "huggingface_hub>=0.23,<1" "markdown>=3.5,<4"
       - name: Unit tests
         run: python -m unittest discover -s tools/tests -v
       - name: Training loop on synthetic images (dry run)

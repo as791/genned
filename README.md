@@ -9,6 +9,8 @@ it — never a claim of certainty.
 > **This is an estimate, not proof.** AI-content detection can produce false
 > positives and false negatives. See "Known accuracy limitations" below.
 
+**Website:** [as791.github.io/genned](https://as791.github.io/genned/)
+
 ## Download
 
 Genned isn't on Google Play yet. Install it from

@@ -1,0 +1,69 @@
+name: Website
+
+# Publishes site/ as the project website on GitHub Pages (https://as791.github.io/genned/).
+# tools/build_site.py fills in the latest release (version, APK links and sizes), renders
+# PRIVACY.md as privacy.html, and adds the app screens from the "screens" artifact of the
+# latest green Android CI run on main. It runs after every green Android CI run on main
+# (so a new release or changed screens update the site), when the site itself changes,
+# or by hand. Repository setting needed once: Settings > Pages > Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'PRIVACY.md'
+      - 'tools/build_site.py'
+      - '.github/workflows/site.yml'
+  workflow_run:
+    workflows: ['Android CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read     # download the screens artifact from Android CI
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install "markdown>=3.5,<4" "pillow>=10,<12"
+      - name: Latest release and app screens
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view --repo "$GITHUB_REPOSITORY" --json tagName,url,publishedAt,assets > release.json
+          RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow android-ci.yml --branch main \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "Release: $(jq -r .tagName release.json); app screens from Android CI run $RUN"
+          gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --name screens --dir screens
+      - name: Build
+        run: python tools/build_site.py --screens screens --release release.json --out _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
