@@ -19,6 +19,9 @@ object PngChunkReader {
     // Generation parameters are a few KB at most; this bounds zip-bomb chunks.
     private const val MAX_INFLATED_BYTES = 1 shl 20
 
+    /** Upper bound on the text read from one file, over all chunks together. */
+    const val MAX_TOTAL_TEXT_BYTES = 4 shl 20
+
     data class TextChunk(val keyword: String, val value: String)
 
     fun readTextChunks(file: File): List<TextChunk> {

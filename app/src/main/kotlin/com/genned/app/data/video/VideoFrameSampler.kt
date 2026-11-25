@@ -18,6 +18,15 @@ sealed class VideoLoadException(message: String) : Exception(message) {
 
 data class SampledFrame(val file: File, val widthPx: Int, val heightPx: Int)
 
+/** Where frames come from: [MediaMetadataRetriever] in the app, a fake in tests. */
+internal interface FrameSource {
+    /** The clip's length, or null when it can't be read. */
+    fun durationMs(): Long?
+
+    /** The frame nearest `timeUs`, or null when there is none. */
+    fun frameAt(timeUs: Long): Bitmap?
+}
+
 /**
  * Extracts a handful of evenly-spaced still frames from a shared video so the
  * existing image classifier pipeline (see AIImageClassifierProvider) can run on
@@ -46,32 +55,39 @@ class VideoFrameSampler(private val context: Context) {
             } catch (e: Exception) {
                 throw VideoLoadException.Unsupported()
             }
+            val source = object : FrameSource {
+                override fun durationMs(): Long? =
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
 
-            val durationMs = retriever
-                .extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                ?.toLongOrNull()
-            if (durationMs == null || durationMs <= 0) {
-                throw VideoLoadException.Unsupported()
+                override fun frameAt(timeUs: Long): Bitmap? =
+                    retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             }
-            if (durationMs > MAX_DURATION_MS) {
-                throw VideoLoadException.TooLong()
-            }
-
-            for (i in 0 until FRAME_COUNT) {
-                // Evenly spaced across the clip, avoiding the very first/last instants
-                // where a fade-in/out or a black frame is more likely.
-                val fraction = (i + 1).toFloat() / (FRAME_COUNT + 1)
-                val timeUs = (durationMs * 1000 * fraction).toLong()
-                val bitmap = retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    ?: continue
-                frames += saveFrame(bitmap)
-            }
-
-            if (frames.isEmpty()) throw VideoLoadException.Unsupported()
-            return frames
+            return sampleFrom(source, frames)
         } finally {
             retriever.release()
         }
+    }
+
+    internal fun sampleFrom(source: FrameSource, frames: MutableList<SampledFrame>): List<SampledFrame> {
+        val durationMs = source.durationMs()
+        if (durationMs == null || durationMs <= 0) {
+            throw VideoLoadException.Unsupported()
+        }
+        if (durationMs > MAX_DURATION_MS) {
+            throw VideoLoadException.TooLong()
+        }
+
+        for (i in 0 until FRAME_COUNT) {
+            // Evenly spaced across the clip, avoiding the very first/last instants
+            // where a fade-in/out or a black frame is more likely.
+            val fraction = (i + 1).toFloat() / (FRAME_COUNT + 1)
+            val timeUs = (durationMs * 1000 * fraction).toLong()
+            val bitmap = source.frameAt(timeUs) ?: continue
+            frames += saveFrame(bitmap)
+        }
+
+        if (frames.isEmpty()) throw VideoLoadException.Unsupported()
+        return frames
     }
 
     private fun saveFrame(rawBitmap: Bitmap): SampledFrame {

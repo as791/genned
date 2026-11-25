@@ -74,6 +74,43 @@ class PngChunkReaderTest {
         assertThat(PngChunkReader.readTextChunks(file)).isEmpty()
     }
 
+    @Test(timeout = 5000)
+    fun `a chunk length near the 32-bit limit is treated as the end of the file, not a crash`() {
+        val huge = byteArrayOf(0x7F, 0xFF.toByte(), 0xFF.toByte(), 0xF0.toByte()) +
+            "tEXt".toByteArray(Charsets.US_ASCII) + "parameters".toByteArray() + byteArrayOf(0) + "x".toByteArray()
+        val png = pngSignature + chunk("IHDR", ByteArray(13)) + huge
+        val file = writeTempPng(png)
+
+        assertThat(PngChunkReader.readTextChunks(file)).isEmpty()
+    }
+
+    @Test(timeout = 20000)
+    fun `many small zTXt bombs together stay within the total cap`() {
+        // 300 chunks of ~1 KB that each inflate to 1 MB: 300 MB if nothing bounds the total.
+        val bomb = compressedTextChunk("Comment", "a".repeat(1 shl 20))
+        val png = pngSignature + chunk("IHDR", ByteArray(13)) +
+            (1..300).fold(ByteArray(0)) { acc, _ -> acc + bomb } + chunk("IEND", ByteArray(0))
+        val file = writeTempPng(png)
+
+        val chunks = PngChunkReader.readTextChunks(file)
+
+        assertThat(chunks.sumOf { it.value.length }).isAtMost(PngChunkReader.MAX_TOTAL_TEXT_BYTES)
+    }
+
+    @Test(timeout = 30000)
+    fun `mutated PNGs never throw`() {
+        val base = pngWith(textChunk("parameters", "Steps: 20, Sampler: Euler a") +
+            compressedTextChunk("Comment", "Midjourney v6"))
+        val random = java.util.Random(42)
+        repeat(2000) {
+            val bytes = base.copyOf(if (random.nextInt(4) == 0) random.nextInt(base.size) else base.size)
+            repeat(1 + random.nextInt(8)) {
+                if (bytes.isNotEmpty()) bytes[random.nextInt(bytes.size)] = random.nextInt(256).toByte()
+            }
+            PngChunkReader.readTextChunks(writeTempPng(bytes).also { it.deleteOnExit() })
+        }
+    }
+
     private fun writeTempPng(bytes: ByteArray): File =
         File.createTempFile("test", ".png").apply { writeBytes(bytes) }
 
