@@ -26,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import math
 import os
@@ -87,6 +88,22 @@ def existing_state(out: Path) -> tuple[Counter, set[str]]:
     return counts, hashes
 
 
+def spread_data_files(dataset: str, spec: str, spread: int) -> list[str]:
+    """Explicit comma-separated paths as given, or a glob expanded over the repo and narrowed
+    to `spread` files evenly spaced over the sorted list (first and last included)."""
+    if "*" not in spec:
+        return [p.strip() for p in spec.split(",") if p.strip()]
+    from huggingface_hub import HfApi
+
+    files = sorted(f for f in HfApi().list_repo_files(dataset, repo_type="dataset") if fnmatch.fnmatch(f, spec))
+    if not files:
+        sys.exit(f"{dataset}: no files match {spec!r}")
+    if spread >= len(files):
+        return files
+    step = (len(files) - 1) / max(spread - 1, 1)
+    return sorted({files[round(i * step)] for i in range(spread)})
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--dataset", required=True, help="Hugging Face dataset id")
@@ -112,6 +129,11 @@ def main() -> None:
                         help="Comma-separated names for integer generator ids; the name 'real' marks real images")
     parser.add_argument("--ai-values", default=None, help="Comma-separated raw label values meaning AI")
     parser.add_argument("--real-values", default=None, help="Comma-separated raw label values meaning real")
+    parser.add_argument("--data-files", default=None,
+                        help="Read these parquet files of the dataset repo instead of its splits: comma-separated "
+                             "paths, or a glob (e.g. 'data/*.parquet') narrowed to --spread files evenly spaced "
+                             "over the sorted list. For huge sets stored in model order, e.g. Community Forensics-Eval.")
+    parser.add_argument("--spread", type=int, default=12, help="With a --data-files glob: how many files to read")
     parser.add_argument("--resume", action="store_true",
                         help="Keep images already in --out and only fetch what's missing (after a network failure)")
     args = parser.parse_args()
@@ -128,13 +150,18 @@ def main() -> None:
     from datasets import Image as HFImage
     from datasets import get_dataset_split_names, load_dataset
 
-    splits = get_dataset_split_names(args.dataset, args.config)
-    if args.strict_split and args.split not in splits:
-        sys.exit(f"{args.dataset}: split '{args.split}' not found (has {splits}); refusing to fall back")
-    split = next((s for s in (args.split, "test", "validation", "train") if s in splits), splits[0])
-    print(f"{args.dataset}: splits={splits}, using '{split}'")
-
-    ds = load_dataset(args.dataset, args.config, split=split, streaming=True)
+    if args.data_files:
+        files = spread_data_files(args.dataset, args.data_files, args.spread)
+        print(f"{args.dataset}: reading {len(files)} files: {files}")
+        ds = load_dataset("parquet", data_files={"train": [f"hf://datasets/{args.dataset}/{f}" for f in files]},
+                          split="train", streaming=True)
+    else:
+        splits = get_dataset_split_names(args.dataset, args.config)
+        if args.strict_split and args.split not in splits:
+            sys.exit(f"{args.dataset}: split '{args.split}' not found (has {splits}); refusing to fall back")
+        split = next((s for s in (args.split, "test", "validation", "train") if s in splits), splits[0])
+        print(f"{args.dataset}: splits={splits}, using '{split}'")
+        ds = load_dataset(args.dataset, args.config, split=split, streaming=True)
     features = ds.features
     if features is None:
         first = next(iter(ds))
@@ -215,7 +242,9 @@ def main() -> None:
     if args.max_per_generator:
         per_generator_quota = min(per_generator_quota, args.max_per_generator)
 
-    ds = ds.cast_column(image_col, HFImage(decode=False)).shuffle(seed=args.seed, buffer_size=300)
+    if isinstance(features[image_col], HFImage):
+        ds = ds.cast_column(image_col, HFImage(decode=False))
+    ds = ds.shuffle(seed=args.seed, buffer_size=300)
 
     (args.out / "real").mkdir(parents=True, exist_ok=True)
     counts, seen = existing_state(args.out) if args.resume else (Counter(), set())
@@ -254,7 +283,8 @@ def main() -> None:
                 continue
 
             image = row[image_col] or {}
-            data = image.get("bytes")
+            # An Image column gives {"bytes": ...}; a plain binary column (Community Forensics) gives bytes.
+            data = image if isinstance(image, (bytes, bytearray)) else image.get("bytes")
             extension = sniff_extension(data) if data else None
             if not data or extension is None:
                 skipped += 1

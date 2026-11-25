@@ -75,6 +75,14 @@ jobs:
             --conditions "$CONDITIONS" --preprocess avg --calibration app --model-name "app as shipped" \
             --json-dir results --scores-csv "results/scores-$DATASET.csv" > "results/$DATASET.txt"
 
+      # Per-image group labels (FairFace ethnicity/gender/age, phone make) for the fairness
+      # report. Labels only, no pixels.
+      - name: Keep the group labels
+        env:
+          DATASET: ${{ matrix.dataset }}
+        run: |
+          if [ -f "eval-data/$DATASET/groups.csv" ]; then cp "eval-data/$DATASET/groups.csv" "results/groups-$DATASET.csv"; fi
+
       # The numbers also go into this job's log, so they survive a failed upload.
       - name: Print this dataset's numbers
         env:
@@ -147,6 +155,11 @@ jobs:
               || echo "(band sweep: could not run on these results)"
             echo
             python tools/eval_report.py results || echo "(summary report: could not run on these results)"
+            if ls results/groups-*.csv >/dev/null 2>&1; then
+              echo
+              python tools/group_report.py results --json results/groups.json ${PARAMS:+--ensemble-params "$PARAMS"} \
+                || echo "(fairness report: could not run on these results)"
+            fi
             # With real phone photos in the run: test refitting the photo calibration on them.
             if [ -f results/scores-phone-photos.csv ]; then
               echo

@@ -130,6 +130,7 @@ def fetch(source, out: Path, count: int, make_regex: str, seed: int, max_tries: 
     real_dir.mkdir(parents=True, exist_ok=True)
     pattern = re.compile(make_regex, re.IGNORECASE)
     makes, skipped = Counter(), Counter()
+    groups: list[tuple[str, str]] = []
     headers: dict[int, bytes] = {}
     for tried, (shard_no, idx) in enumerate(picks, 1):
         if sum(makes.values()) >= count:
@@ -163,10 +164,15 @@ def fetch(source, out: Path, count: int, make_regex: str, seed: int, max_tries: 
             skipped["camera, not a phone brand"] += 1
             continue
         extension = sample.get("extension") or ".jpg"
-        (real_dir / f"{sum(makes.values()):05d}{extension}").write_bytes(image)
+        name = f"{sum(makes.values()):05d}{extension}"
+        (real_dir / name).write_bytes(image)
         makes[make.split()[0].lower()] += 1
+        groups.append((f"real/{name}", make.split()[0].lower()))
         if tried % 50 == 0:
             print(f"  tried {tried}: kept {sum(makes.values())}/{count}")
+    # The phone make of each photo, for the per-make false-alarm report (tools/group_report.py).
+    with (out / "groups.csv").open("w") as f:
+        f.write("file,make\n" + "".join(f"{file},{make}\n" for file, make in groups))
     print(f"Kept {sum(makes.values())} phone photos (tried {tried}); by make: {dict(makes.most_common())}")
     print(f"Skipped: {dict(skipped)}")
     return makes
