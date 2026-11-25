@@ -4,7 +4,7 @@ name: Android CI
 # dl.google.com/maven.google.com. This workflow is the actual build/test gate
 # for the project. Pushing a tag vMAJOR.MINOR.PATCH, or running it by hand with a
 # release version, also publishes the signed release APK as a GitHub release
-# (README "Publishing a release").
+# (internal-docs/RELEASING.md "Publishing a release").
 on:
   push:
     branches: [main]
@@ -146,7 +146,7 @@ jobs:
           path: app/schemas/
 
       # Release builds use a private upload key that is never committed. It comes from
-      # repository secrets (README "Release builds"); without them the release build is
+      # repository secrets (internal-docs/RELEASING.md "Release builds"); without them the release build is
       # still produced, unsigned, so R8 and resource shrinking are exercised on every push.
       - name: Prepare upload key (if configured)
         env:
@@ -196,7 +196,7 @@ jobs:
           OUT=app/build/outputs/apk/release
           APK=$OUT/app-universal-release.apk
           if [ ! -f "$APK" ]; then
-            echo "::error::No signed release APK. Releases need the upload-key secrets (README \"Release builds\")."
+            echo "::error::No signed release APK. Releases need the upload-key secrets (internal-docs/RELEASING.md \"Release builds\")."
             exit 1
           fi
           APKSIGNER="$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner | sort -V | tail -1)"

@@ -1,0 +1,52 @@
+name: Wrong result
+description: Genned missed an AI image or video, or flagged a real one.
+labels: [detection]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Wrong-result reports help us find where the detectors are weak. Genned gives an estimate,
+        not proof, so single mistakes are expected; patterns across many images are what we can fix.
+
+        **Only share images you have the rights to, and never images of private people without
+        their consent.** Describing the image is fine if you can't share it.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong?
+      options:
+        - An AI-generated image or video was shown as "Likely not AI-generated"
+        - A real photo or video was shown as "Likely AI-generated"
+        - It said "Uncertain" for something that seems obvious
+        - Content Credentials were shown wrongly
+    validations:
+      required: true
+  - type: input
+    id: result
+    attributes:
+      label: What Genned showed
+      placeholder: "Likely not AI-generated, AI likelihood 9%"
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: Where the image or video came from
+      description: |
+        For AI images: which tool made it (e.g. Midjourney v7, ChatGPT, Gemini, Flux, Sora), if you know.
+        For real photos: which phone or camera took it.
+        Also: was it shared, screenshotted, edited or re-saved before you checked it?
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: The image or a link to it (optional)
+      description: Only if you have the rights to share it and it shows no private person.
+  - type: input
+    id: version
+    attributes:
+      label: Genned version
+      placeholder: "0.5.0"
+    validations:
+      required: true

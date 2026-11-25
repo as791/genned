@@ -1,0 +1,44 @@
+name: Bug report
+description: Something in the app doesn't work as it should (crash, wrong screen, broken button).
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! For a detection mistake (an AI image it missed, or a real photo it
+        flagged), use the **Wrong result** template instead. For security problems, see
+        [SECURITY.md](https://github.com/as791/genned/blob/main/SECURITY.md) and don't post here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Share a video from Instagram to Genned
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: Genned version
+      description: Settings → About, or the APK file name.
+      placeholder: "0.5.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Phone and Android version
+      placeholder: "Pixel 7, Android 15"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: Optional. Please don't include anyone's private photos or personal information.

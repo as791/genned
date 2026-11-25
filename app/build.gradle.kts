@@ -40,7 +40,7 @@ android {
             keyPassword = "android"
         }
         // Private upload key for Play, never committed: CI writes it from the
-        // UPLOAD_KEYSTORE_BASE64 secret (see README "Release builds"). Without these
+        // UPLOAD_KEYSTORE_BASE64 secret (see internal-docs/RELEASING.md "Release builds"). Without these
         // variables the release build is simply unsigned (still built and R8-checked in CI).
         val uploadStore = System.getenv("GENNED_UPLOAD_STORE_FILE")
         if (uploadStore != null && file(uploadStore).exists()) {

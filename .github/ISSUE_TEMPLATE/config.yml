@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security problem
+    url: https://github.com/as791/genned/security/advisories/new
+    about: Report security issues privately, not in a public issue.
+  - name: Website and download
+    url: https://as791.github.io/genned/
+    about: What Genned does, how to install it, and the FAQ.

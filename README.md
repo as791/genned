@@ -1,281 +1,196 @@
-# Genned
+<p align="center">
+  <img src="site/assets/brand/icon-rounded-192.png" width="96" alt="Genned logo">
+</p>
 
-A private, on-device Android app that estimates whether an image — or a shared
-video like a Reel or Short — is likely AI-generated. Share it in from
-Instagram, X, Reddit, WhatsApp, a browser, or your Gallery, and get an
-evidence-based likelihood estimate in seconds, along with the reasoning behind
-it — never a claim of certainty.
+<h1 align="center">Genned</h1>
 
-> **This is an estimate, not proof.** AI-content detection can produce false
-> positives and false negatives. See "Known accuracy limitations" below.
+<p align="center">
+  <b>Is it real? Check before you share.</b><br>
+  A free, open-source Android app that tells you whether a photo or video is likely
+  AI-generated, in plain words, entirely on your phone.
+</p>
 
-**Website:** [as791.github.io/genned](https://as791.github.io/genned/)
+<p align="center">
+  <a href="https://github.com/as791/genned/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/as791/genned?label=release"></a>
+  <a href="https://github.com/as791/genned/actions/workflows/android-ci.yml"><img alt="Android CI" src="https://github.com/as791/genned/actions/workflows/android-ci.yml/badge.svg?branch=main"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+  <img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84">
+  <img alt="No internet permission" src="https://img.shields.io/badge/internet%20permission-none-success">
+</p>
+
+<p align="center">
+  <a href="https://as791.github.io/genned/">Website</a> ·
+  <a href="https://github.com/as791/genned/releases/latest">Download</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#accuracy">Accuracy</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="PRIVACY.md">Privacy</a>
+</p>
+
+<p align="center">
+  <img src="store-listing/raw/03_result_likely_ai.jpg" width="200" alt="Result: Likely AI-generated">
+  <img src="store-listing/raw/03b_result_uncertain_high_score.jpg" width="200" alt="Result: Uncertain, with the reason">
+  <img src="store-listing/raw/06_result_verified.jpg" width="200" alt="Result: verified Content Credentials">
+  <img src="store-listing/raw/10_overlay_setup.jpg" width="200" alt="Instagram and WhatsApp bubble setup">
+</p>
+
+> **Genned gives an estimate, not proof.** AI-content detection makes mistakes in both
+> directions. Genned says "Uncertain" when it can't tell, and the
+> [accuracy section](#accuracy) lists what it still gets wrong.
+
+## Why
+
+AI images and videos now look real enough to fool almost anyone: forwarded "news" photos
+in family groups, flawless faces on Instagram and dating apps that belong to no one, viral
+Reels of things that never happened. Genned gives you a second opinion before you believe,
+forward or reply, without sending your photos anywhere.
+
+## Features
+
+- **Plain answers.** *Likely AI-generated*, *Uncertain* (with the reason), or
+  *Likely not AI-generated*, plus every check behind it. Never "real" or "fake".
+- **Works from any app.** Share a photo, screenshot or video (Reels, Shorts, up to
+  3 minutes) from WhatsApp, Instagram, your gallery or any app with a Share button.
+- **Instagram and WhatsApp bubble.** An optional floating bubble: tap it while you
+  scroll to check what's on screen, without leaving the app.
+- **Verified Content Credentials.** Signed C2PA records from cameras, editors and AI tools
+  such as ChatGPT are verified on the phone against the official trust lists.
+- **Private by design.** Every check runs on the device. The app has **no internet
+  permission**, no account, no ads and no analytics.
+- **Open and measured.** Every model change is benchmarked on held-out data in CI, and the
+  numbers are published.
 
 ## Download
 
-Genned isn't on Google Play yet. Install it from
-[GitHub Releases](https://github.com/as791/genned/releases/latest) (Android 8.0+):
-download `genned-<version>-arm64-v8a.apk` (nearly every recent phone) or
-`genned-<version>.apk` (works on every phone, larger) on your phone, open it, and allow
-installs from that app when Android asks. Each release lists the APKs' SHA-256s and the signing certificate's
-fingerprint. The app has no internet permission, so it can't tell you about updates. Watch
-the repository's releases instead, and install a newer APK over the old one.
+Genned isn't on Google Play yet. Get it from
+[GitHub Releases](https://github.com/as791/genned/releases/latest) (Android 8.0 or newer):
 
-Privacy: everything runs on your phone and nothing is collected. See the
-[privacy policy](PRIVACY.md).
+1. On your phone, download `genned-<version>-arm64-v8a.apk` (nearly every phone from the
+   last several years), or `genned-<version>.apk`, which is larger but works on every phone.
+2. Open it, allow installs from your browser or Files app when Android asks, and tap
+   Install.
 
-## What it does
+Every release is signed with the same key and lists each APK's SHA-256. The app can't
+check for updates (no internet), so watch the repository's releases and install a newer
+APK over the old one; your history is kept.
 
-1. You share an image into Genned (or pick one directly from the app).
-2. It's analyzed entirely on your device: a visual AI-likelihood classifier,
-   metadata inspection (EXIF, PNG generator signatures), and provenance checks.
-3. You see a plain verdict — **Likely AI-generated** / **Uncertain** /
-   **Likely not AI-generated** — with an AI-likelihood percentage and what it means
-   (deliberately never "REAL"/"FAKE"/"definitely" anything). If verified Content
-   Credentials decide the result, it is shown as "Verified" with what the signer
-   declared instead of a percentage. Below is every check that contributed, the
-   deciding one first; checks that had nothing to report are folded into one row.
-4. The result — and only the result, never your original image — can be saved
-   to local history or shared as a card via the normal Android share sheet.
+## How it works
 
-No accounts, no backend, no cloud sync, no ads, no subscriptions.
+You share a photo or video into Genned, and several independent checks run on the phone.
+Each one reports a score, or says honestly that it couldn't run; nothing is ever faked.
 
-## User flow
+| Check | What it looks at |
+|---|---|
+| **AI detectors** | Two image models, EfficientNet-B4 and Community Forensics ViT-S, run with ONNX Runtime and combined into one calibrated score. Videos are checked on sampled frames. |
+| **Content Credentials (C2PA)** | Signed records of how the file was made. A trusted "made with generative AI" or "captured with a camera" record decides the result outright. |
+| **Generator metadata** | Tags that AI tools leave in EXIF or PNG chunks (Stable Diffusion parameters, Midjourney or DALL·E software strings). A match counts as evidence; no match proves nothing. |
+| **Camera metadata** | Make, model and exposure fields: weak evidence for a real photo, because sharing apps strip them. |
 
-```
-Home ──choose image──▶ Analyzing ──▶ Result ──▶ History
-  ▲                                     │           │
-  └───────── "Check Another" ───────────┘           │
-  ▲                                                  │
-  └──────────────── tap a saved row ─────────────────┘
+The answer bands are set from benchmark data: *Likely AI-generated* at 90% or more,
+*Likely not AI-generated* below 15%, and *Uncertain* in between, because that's where
+detectors are wrong too often. Details are in
+[`internal-docs/ARCHITECTURE.md`](internal-docs/ARCHITECTURE.md) and
+[`internal-docs/MODEL.md`](internal-docs/MODEL.md).
 
-Any app's Share sheet ──▶ Genned ──▶ Analyzing ──▶ Result
-```
+## Accuracy
 
-Screens: **Home** (choose photo or video / share hint / recent checks), **Analyzing**
-(preview + real pipeline-stage progress, never a fake timer), **Result** (verdict,
-percentage, one card per check, disclaimer, check-another/share, delete),
-**History** (thumbnail rows, per-item delete, clear-all), **Settings** (privacy
-statement, bundled-model status, version).
+Measured on held-out test images the models never trained on (300 per class), with the
+previous models re-run on the same images. Full results:
+[issue #16](https://github.com/as791/genned/issues/16).
 
-## How detection works
+| v0.5.0 | Before | Now |
+|---|---|---|
+| Real phone photos shown "Uncertain" | 56% | 34% |
+| Real phone photos wrongly shown "Likely AI-generated" | 3.3% | 0.7% |
+| Newer AI generators (OpenFake): AI shown "Likely AI-generated" | 47% | 56% |
+| Newer AI generators (OpenFake): AUC | 0.925 | 0.953 |
+| AI images disguised as real by a universal adversarial pattern | 65% | 28% |
 
-Genned never relies on a single classifier. Multiple independent evidence
-sources each report a score — or explicitly "unavailable," never a fabricated
-value — and those are combined transparently into one likelihood estimate:
+**Known limitations**
 
-- **Visual AI classifier** — on-device ONNX Runtime inference with the bundled
-  `Dafilab/ai-image-detector` model (EfficientNet-B4, exported to ONNX).
-  A shared screenshot (file named "Screenshot…" or the size of the phone's screen, and
-  no camera EXIF) is classified on the picture inside it, not the surrounding app UI.
-- **Generator metadata** — scans EXIF and PNG text chunks for known
-  generative-tool signatures (Stable Diffusion/ComfyUI "parameters" chunks,
-  Midjourney/DALL·E/Firefly software strings, etc.). A match is real evidence;
-  no match is never treated as evidence the image is authentic (this metadata
-  is trivially stripped by re-saving or sharing).
-- **EXIF camera metadata** — presence of camera capture fields (make/model/
-  exposure) is weak evidence *for* a real photo; its absence is treated as
-  near-zero evidence, since screenshots and social re-uploads strip EXIF
-  constantly too.
-- **Content Credentials (C2PA)** — signed records some generators, editors and
-  cameras embed (ChatGPT, Adobe Firefly, Google, Samsung and others). Genned verifies
-  them on the phone (Android 9+) against the official C2PA and Content Authenticity
-  trust lists bundled with the app. Only credentials from a trusted signer that say
-  "made with generative AI" or "captured with a camera" decide the result; they
-  *override* the probabilistic blend. Credentials from unknown signers, or that fail
-  verification, are reported but never counted. Most apps and social networks strip
-  them, so usually there are none: save or forward the original file to keep them.
-- **Known watermark detection** — interface implemented, honestly reports
-  "unavailable": no open, on-device detector exists for generative watermarks
-  like SynthID as of this writing.
+- Pictures from the newest closed AI tools are the hardest case, and often come out
+  "Uncertain".
+- Everyday edits (grain, sharpening, screenshots of screenshots) can hide AI: up to 13% of
+  edited AI images still come out "Likely not AI-generated".
+- Video is checked frame by frame, with no motion or audio analysis. On two video
+  benchmarks the app catches 82% and 30% of AI videos at a 5% false-alarm rate; modern
+  talking-head fakes remain hard.
+- It is not robust to deliberate attacks. Someone with the model files can make it say
+  anything.
 
-**Video (Reels/Shorts):** shared video is handled by sampling a handful of
-evenly-spaced still frames and running the *same* image classifier on each
-one, then averaging the scores — this is frame-sampled still-image
-classification, not motion/temporal or audio analysis, and every video result
-says so explicitly.
+## Building from source
 
-**Screen overlay (experimental, off by default):** a floating bubble, enabled
-from the home screen or Settings ("Set up the bubble"), that lets you check whatever is currently on
-screen inside Instagram or WhatsApp — including content those apps only let
-you forward internally, which no share-sheet integration can reach. It
-captures on-screen frames via Android's `MediaProjection` API (the same
-sanctioned mechanism screen recorders use) only at the moment you tap the bubble,
-and analyzes only when you tap it — never automatically, and never reading
-the other app's actual content.
-
-## Build
-
-Requires JDK 17+ and an Android SDK (via Android Studio, or `sdkmanager`) with
-the `compileSdk 35` platform + build tools installed.
+Requirements: JDK 17 and the Android SDK with platform 36 (Android Studio installs both).
 
 ```bash
-./gradlew assembleDebug
+git clone https://github.com/as791/genned.git
+cd genned
+./gradlew assembleDebug                    # build a debug APK
+./gradlew installDebug                     # install it on a connected phone or emulator
+./gradlew testDebugUnitTest :domain:test   # unit and screenshot tests
 ```
 
-Install to a connected device/emulator:
+The models ship in the repository (`app/src/main/assets/models/`, about 157 MB) and are
+bundled at build time; the app never downloads anything. The Python tooling for
+benchmarks and training is in `tools/` (`pip install -r tools/requirements.txt`).
 
-```bash
-./gradlew installDebug
-```
+## Project layout
 
-Run tests:
-
-```bash
-./gradlew testDebugUnitTest :domain:test
-```
-
-### Release builds
-
-CI builds the **release** variant on every push (`lintRelease`, `assembleRelease`,
-`bundleRelease`), so R8 code shrinking and resource shrinking are always exercised. The
-outputs and R8's `mapping.txt` are uploaded as the `genned-release` artifact. Release
-builds strip all debug-level logging and hide the debug-log tools.
-
-Release builds are signed only with a **private upload key**. The key is never committed;
-the committed `app/debug.keystore` signs debug builds only. Without the key, the release
-build is produced unsigned. To sign it:
-
-1. Create an upload key once, on your own machine, and back it up somewhere safe:
-   ```bash
-   keytool -genkeypair -v -keystore genned-upload.jks -alias genned-upload \
-     -keyalg RSA -keysize 4096 -validity 10000
-   base64 -w0 genned-upload.jks > genned-upload.jks.b64   # macOS: base64 -i genned-upload.jks
-   ```
-2. In the GitHub repository, open Settings → Secrets and variables → Actions, and add:
-   - `UPLOAD_KEYSTORE_BASE64`: the contents of `genned-upload.jks.b64`;
-   - `UPLOAD_STORE_PASSWORD`;
-   - `UPLOAD_KEY_ALIAS` (here `genned-upload`);
-   - `UPLOAD_KEY_PASSWORD`.
-3. The next CI run produces a signed release APK and a signed AAB (the AAB is for Play,
-   later).
-
-The keystore is written to the runner's temp directory for the build and deleted
-afterwards. Each CI build gets `versionCode` = 1000 + run number, so successive builds
-install and upload as updates.
-
-**Keep the upload key backed up.** Releases are installed directly from GitHub, so this key
-is also the key every installed copy trusts. Without it, no update can ever install over
-an existing copy. If the app goes to Play later, enrol in Play App Signing with **this same
-key** (Play Console's "use a key from Java keystore" option, not a Google-generated key).
-Then GitHub and Play installs can update each other.
-
-### Publishing a release
-
-In GitHub, open Actions → Android CI → Run workflow and enter a version such as `0.2.0`,
-or push a tag:
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-Either way, the same CI workflow builds, tests and signs the release, then creates a GitHub
-release `v0.2.0` with the universal `genned-0.2.0.apk`, one APK per CPU type
-(`genned-0.2.0-arm64-v8a.apk`, `-armeabi-v7a`, `-x86_64`, `-x86`) and `SHA256SUMS.txt`.
-The version must look like `MAJOR.MINOR.PATCH`; it sets `versionName`. `versionCode` keeps
-counting with the workflow's runs (each APK uses it × 10 plus a per-CPU offset), so any
-release APK installs over any earlier one. The
-step fails if the upload-key secrets are missing, so an unsigned APK is never published.
-The AAB and `mapping.txt` stay in that run's `genned-release` artifact.
-
-## How to replace/update the ML model
-
-The bundled models live in `app/src/main/assets/models/` (four files: a pair for
-photos and a pair for video; see the `README.md` there). To replace one, drop a
-verified `.onnx` file at the same path and refit its constants as described in
-`internal-docs/MODEL.md` "Replacing the model file".
-`tools/convert_model.py` documents exporting the current model
-(`Dafilab/ai-image-detector`, Apache-2.0) from Hugging Face, and
-`tools/evaluate.py` measures accuracy/precision/recall/F1/confusion matrix
-against a labeled dataset. The model is **never** downloaded at runtime —
-only ever bundled at build time.
-
-## Licenses
-
-- App source code: [Apache-2.0](LICENSE).
-- Kotlin, Jetpack Compose, AndroidX libraries (Room, Navigation, ExifInterface,
-  Activity/Lifecycle): Apache-2.0.
-- ONNX Runtime Mobile (`com.microsoft.onnxruntime:onnxruntime-android`): MIT.
-- Bundled classifier models: `Dafilab/ai-image-detector` (Apache-2.0) and
-  Community Forensics ViT-S 224 (`OwensLab/commfor-model-224`, MIT; Park & Owens, CVPR 2025),
-  each as published (used for video) and as a copy retrained for photos by this project
-  (same licenses). The retraining used images from OpenFake (`ComplexDataLab/OpenFake`,
-  CC-BY-SA-4.0, open-weights generators only), the Defactify dataset, and real phone
-  photos from LAION-Mobile (`sumathiselvan/LAION-Mobile-streaming`).
-- `contentauth/c2pa-android` (Content Credentials, includes the C2PA Rust SDK): dual
-  MIT/Apache-2.0. JNA: Apache-2.0. OkHttp: Apache-2.0.
-- Bundled trust lists: C2PA Trust List (CC-BY-4.0, C2PA); Content Authenticity
-  Initiative interim trust list (public certificates).
-
-## Known accuracy limitations
-
-- **The visual classifier ships with the app.** It is an ensemble of two
-  on-device models, `Dafilab/ai-image-detector` and Community Forensics ViT-S
-  224, in `app/src/main/assets/models/` (about 157 MB). Photos use copies of
-  both models retrained on newer generators, everyday edits and real phone
-  photos; video keeps the published weights, because the retrained copies were
-  not better on video. Combined, the models beat either one alone. On the harder photo benchmark
-  they catch 53% of AI images at a 5% false-alarm rate (the first single model
-  caught 30%); on the easier one, 98% (it caught 73%). If a model file is ever missing from a build, the
-  app falls back to the remaining model, or reports the classifier as
-  unavailable, rather than faking a score.
-- **Measured accuracy is moderate.** On two public real-vs-AI image datasets
-  (500 images each), the bundled classifier reaches an AUC of 0.91 and 0.80
-  (1.0 = perfect, 0.5 = coin flip). On the harder set, about a third of real
-  images were scored as likely AI, and DALL·E 3 images were caught only about
-  half the time. Its raw scores were far too confident, so the app now
-  calibrates them (see below). Evaluating stronger models is the current focus:
-  see
-  [issue #14](https://github.com/as791/genned/issues/14) and
-  `internal-docs/MODEL.md` "Measured accuracy". Anyone can re-run the benchmark
-  from the repo's Actions tab ("Model eval").
-- **Video is less reliable than photos.** Reels and Shorts are analyzed by
-  running the image classifier on 5 sampled frames. There is no motion or audio
-  analysis. On two recent real-vs-AI video benchmarks the image model scored
-  many *real* videos as AI-like (26% of real talking-head clips came out HIGH).
-  Video now has its own calibration, and the ensemble's second model is much
-  stronger on video. On two benchmarks it catches 82% and 30% of AI videos at
-  a 5% false-alarm rate (the single model caught 41% and 21%), and at most 2%
-  of real videos show HIGH. Modern talking-head fakes remain hard.
-- **Not robust to deliberate attacks.** An attacker with the model files can
-  add invisible noise that flips the result. #15 measured this and tried the
-  phone-feasible defenses: a consistency check and three rounds of adversarial
-  fine-tuning. None held up against an attacker who adapts, so none ships.
-  The app's job is to help you judge ordinary content, including recompressed
-  and reshared images, not to resist a determined adversary.
-- Like every AI-image detector, the classifier's training data has a cutoff
-  and will be weaker against newer generators; compression, screenshotting,
-  and intentional adversarial editing can all shift results in either
-  direction.
-- **Scores are calibrated, and bands are set to avoid false alarms.** The raw
-  classifier's scores are rescaled to match how often it's actually right, and
-  "HIGH" needs 90% or more and "LOW" needs under 15%. In the benchmarks, about 5%
-  of real images at most were labeled HIGH, and at most 10% of unedited AI images
-  were labeled LOW (up to 13% after edits such as grain or sharpening). The
-  trade-off is that many images honestly come out UNCERTAIN: about a third of real
-  phone photos.
+| Path | What's there |
+|---|---|
+| `app/` | The Android app (Kotlin, Jetpack Compose): screens, detectors, the share target and the bubble |
+| `domain/` | Pure-Kotlin core: evidence model and the engine that combines signals into a result |
+| `tools/` | Python: benchmarks, calibration, model export and training (`tools/tests/` has its tests) |
+| `notebooks/` | Training notebooks for GPU runs |
+| `.github/workflows/` | CI: build and test, benchmarks, training, releases, the website |
+| `site/` | The website at [as791.github.io/genned](https://as791.github.io/genned/) |
+| `internal-docs/` | Architecture, model card and benchmark history, privacy design, roadmap, releasing |
+| `release-notes/` | User-facing notes for each release |
+| `store-listing/` | Screenshots, featured images and text for app stores |
 
 ## Contributing
 
-Genned is early, and help is very welcome, especially from people working on AI
-provenance, computer vision or Android. Good places to start:
+Contributions are very welcome, especially from people working on Android, computer
+vision or content provenance. Start with [CONTRIBUTING.md](CONTRIBUTING.md), then pick an
+issue labelled
+[`good first issue`](https://github.com/as791/genned/labels/good%20first%20issue) or
+[`help wanted`](https://github.com/as791/genned/labels/help%20wanted).
 
-- [#14 Detector accuracy](https://github.com/as791/genned/issues/14): calibrate
-  the scores, and benchmark and propose better on-device detectors.
-- [#15 Adversarial robustness](https://github.com/as791/genned/issues/15):
-  an open problem. The benchmarks and the fine-tuning pipeline
-  (`notebooks/adversarial_finetune.ipynb`) are in place. Making these detectors
-  robust likely needs an adversarially pretrained backbone and real GPU time.
-- [#1 Public release readiness](https://github.com/as791/genned/issues/1): the
-  checklist for a store release.
+Areas where help matters most:
 
-Any change to detection should come with numbers from the `Model eval` workflow
-(`tools/evaluate.py`), not just anecdotes. Images never leave the device, and
-changes must keep it that way.
+- **Detection accuracy:** better on-device models, especially for the newest generators
+  and edited images ([#16](https://github.com/as791/genned/issues/16)).
+- **Video:** motion-aware or video-trained detectors small enough for a phone.
+- **Android:** accessibility, translations (all text is in string resources), testing on
+  more devices.
+- **Store release:** the checklist in [#1](https://github.com/as791/genned/issues/1).
 
-## Documentation
+Three rules matter for every change: images never leave the device, results are never
+faked, and changes to detection come with benchmark numbers, not anecdotes.
 
-Deeper technical notes for contributors — architecture, the model card, the
-privacy design, the roadmap, and a pre-release checklist — live in
-[`internal-docs/`](internal-docs/), kept separate from this README so it stays
-focused on what the app does and how to build it.
+## Community
+
+- **Questions and ideas:** [open an issue](https://github.com/as791/genned/issues/new/choose).
+- **Wrong result?** Use the "Wrong result" issue template.
+- **Security problems:** report them privately; see [SECURITY.md](SECURITY.md).
+- Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License and credits
+
+Genned is licensed under the [Apache License 2.0](LICENSE).
+
+- Models: [`Dafilab/ai-image-detector`](https://huggingface.co/Dafilab/ai-image-detector)
+  (Apache-2.0) and Community Forensics ViT-S 224
+  ([`OwensLab/commfor-model-224`](https://huggingface.co/OwensLab/commfor-model-224), MIT;
+  Park & Owens, CVPR 2025), each bundled as published (for video) and as a copy retrained
+  by this project for photos.
+- Training data for the retrained copies: OpenFake (`ComplexDataLab/OpenFake`,
+  CC-BY-SA-4.0, open-weights generators only), the Defactify dataset, and real phone photos
+  from LAION-Mobile (`sumathiselvan/LAION-Mobile-streaming`).
+- Libraries: ONNX Runtime Mobile (MIT); `contentauth/c2pa-android` with the C2PA Rust SDK
+  (MIT/Apache-2.0); Kotlin, Jetpack Compose and AndroidX (Apache-2.0); JNA and OkHttp
+  (Apache-2.0).
+- Trust lists: the C2PA Trust List (CC-BY-4.0) and the Content Authenticity Initiative
+  interim trust list.
+
+The full list, with licence texts, is in the app under Settings → Open-source licenses.
