@@ -72,10 +72,10 @@ p { margin: 0; }
 .logo { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; font-weight: 800; font-size: 20px; letter-spacing: -0.01em; }
 .logo img { width: 32px; height: 32px; border-radius: 8px; }
 .top nav { margin-left: auto; display: flex; gap: 22px; align-items: center; }
-.top nav a { color: #D9DAF2; text-decoration: none; font-size: 15px; }
+.top nav a { color: #D9DAF2; text-decoration: none; font-size: 15px; white-space: nowrap; }
 .top nav a:hover { color: #fff; }
 .top nav .btn { color: var(--brand); }
-@media (max-width: 760px) { .top nav a:not(.btn) { display: none; } }
+@media (max-width: 980px) { .top nav a:not(.btn) { display: none; } }
 
 /* Buttons */
 .btn {
@@ -193,6 +193,19 @@ section.alt { background: var(--surface-2); }
 .limits ul { margin: 10px 0 0; padding-left: 20px; color: var(--text-2); }
 .limits li + li { margin-top: 6px; }
 .note { font-size: 14px; color: var(--text-2); margin-top: 18px; }
+
+/* Responsible AI */
+.ticks { list-style: none; padding: 0; margin: 14px 0 0; }
+.ticks li { position: relative; padding-left: 30px; color: var(--text-2); }
+.ticks li + li { margin-top: 12px; }
+.ticks li::before { content: "✓"; position: absolute; left: 0; top: 0; color: var(--low); font-weight: 800; }
+.ticks strong { color: var(--text); }
+.attacks { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 16px; }
+.attacks th, .attacks td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+.attacks th:first-child, .attacks td:first-child { text-align: left; }
+.attacks th { font-size: 14px; color: var(--text-2); font-weight: 600; }
+.attacks td strong { color: var(--low); }
+.card .note { margin-top: 14px; }
 
 /* Privacy band */
 .privacy { background: var(--brand); color: var(--brand-ink); }

@@ -23,6 +23,7 @@
   <a href="https://github.com/as791/genned/releases/latest">Download</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#accuracy">Accuracy</a> ·
+  <a href="#responsible-ai">Responsible AI</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="PRIVACY.md">Privacy</a>
 </p>
@@ -116,7 +117,43 @@ previous models re-run on the same images. Full results:
   benchmarks the app catches 82% and 30% of AI videos at a 5% false-alarm rate; modern
   talking-head fakes remain hard.
 - It is not robust to deliberate attacks. Someone with the model files can make it say
-  anything.
+  anything (see [Responsible AI](#responsible-ai)).
+
+## Responsible AI
+
+A tool that judges what's real has to earn trust itself.
+
+**Governance**
+
+- **Provenance standards:** Content Credentials (C2PA) are verified on the phone against
+  the official C2PA and Content Authenticity Initiative trust lists. Unknown or broken
+  signatures are shown but never counted.
+- **Every model change is measured:** new models ship only after held-out benchmarks, and
+  the results, model card and decision history are published in
+  [`internal-docs/MODEL.md`](internal-docs/MODEL.md).
+- **Clean training data:** the retrained models use images from open-weights generators
+  only, and the licence of every model and dataset is checked.
+- **Honest outputs:** calibrated scores, "Uncertain" instead of false confidence, never
+  "real" or "fake", and a check that can't run says so instead of guessing.
+- **Private by design:** no internet permission, no data collected, open source.
+
+**Adversarial testing**
+
+Every model release is attacked in CI (the `Adversarial eval` workflow): universal
+adversarial patterns, transfer attacks from public detectors, black-box query attacks and
+white-box attacks, each also re-saved to hide the traces. The v0.5.0 models were trained
+against universal patterns and everyday edits.
+
+| Attack (share of AI images disguised as real; lower is better) | Before | v0.5.0 |
+|---|---|---|
+| Universal adversarial pattern | 65% | 28% |
+| Transfer from public detectors | 88% | 65% |
+| Black-box queries | 70% | 40% |
+| White box (attacker has the models) | 100% | 100% |
+
+60 images per attack, at the same strength (8/255) before and after. Defences that didn't
+hold up against adaptive attackers, such as an input-consistency check, were not shipped.
+Genned is not robust to someone who has the model files and sets out to fool it.
 
 ## Building from source
 

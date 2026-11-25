@@ -25,6 +25,7 @@
       <a href="#how">How it works</a>
       <a href="#features">Features</a>
       <a href="#accuracy">Accuracy</a>
+      <a href="#responsible-ai">Responsible AI</a>
       <a href="#privacy">Privacy</a>
       <a href="https://github.com/as791/genned">GitHub</a>
       <a class="btn" href="#download">Download</a>
@@ -186,6 +187,43 @@
               <li>Every result is an estimate, not proof.</li>
             </ul>
           </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="responsible-ai" aria-labelledby="rai-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="rai-title">Responsible AI, built in</h2>
+        <p>A tool that judges what's real has to earn trust itself. Here is how Genned is governed and how hard we try to break it.</p>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🛡️</span>
+          <h3>Governance</h3>
+          <ul class="ticks">
+            <li><strong>Provenance standards.</strong> Verifies Content Credentials (C2PA) against the official C2PA and Content Authenticity Initiative trust lists. Unknown or broken signatures are shown, never counted.</li>
+            <li><strong>Every model change is measured.</strong> New models ship only after held-out benchmarks, published with a model card and the full decision history.</li>
+            <li><strong>Clean training data.</strong> Retrained only on images from open-weights generators, with the licence of every model and dataset checked.</li>
+            <li><strong>Honest outputs.</strong> Calibrated scores, "Uncertain" instead of false confidence, and never "real" or "fake".</li>
+            <li><strong>Private by design.</strong> No internet permission, no data collected, open source.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🎯</span>
+          <h3>Tested against attacks</h3>
+          <p>Every model release is attacked in CI: universal adversarial patterns, transfer attacks from public detectors, black-box query attacks and white-box attacks, each also re-saved to hide the traces. The latest models were trained against universal patterns and everyday edits.</p>
+          <table class="attacks">
+            <thead><tr><th>Attack</th><th>Before</th><th>Now</th></tr></thead>
+            <tbody>
+              <tr><td>Universal adversarial pattern</td><td>65%</td><td><strong>28%</strong></td></tr>
+              <tr><td>Transfer from public detectors</td><td>88%</td><td><strong>65%</strong></td></tr>
+              <tr><td>Black-box queries</td><td>70%</td><td><strong>40%</strong></td></tr>
+              <tr><td>White box (attacker has the models)</td><td>100%</td><td>100%</td></tr>
+            </tbody>
+          </table>
+          <p class="note">Share of AI images an attack disguises as real; lower is better. 60 images per attack, at the same attack strength before and after. Defences that didn't hold up against adaptive attackers were not shipped. Genned is not robust to someone who has the model files and sets out to fool it. <a href="https://github.com/as791/genned/blob/main/internal-docs/MODEL.md">Method and full results</a>.</p>
         </div>
       </div>
     </div>
