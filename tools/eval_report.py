@@ -21,11 +21,21 @@ BUNDLED = "dafilab (bundled)"
 
 
 def pct(value: float | None) -> str:
-    return "n/a" if value is None else f"{value * 100:.1f}%"
+    return "n/a" if value is None or value != value else f"{value * 100:.1f}%"
 
 
 def num(value: float | None) -> str:
-    return "n/a" if value is None else f"{value:.3f}"
+    return "n/a" if value is None or value != value else f"{value:.3f}"
+
+
+def with_ci(m: dict, key: str, value: float | None, fmt) -> str:
+    """'value [low–high]' with the 95% interval when the result has one."""
+    if value is None or value != value:
+        return "n/a"
+    ci = m.get("ci95", {}).get(key)
+    if not ci or ci[0] != ci[0]:
+        return fmt(value)
+    return f"{fmt(value)} [{fmt(ci[0])}–{fmt(ci[1])}]"
 
 
 def main() -> None:
@@ -62,6 +72,29 @@ def main() -> None:
             f"| {num(m['auc'])} | {pct(m['accuracy'])} | {pct(m['fpr'])} | {pct(m['fnr'])} "
             f"| {pct(m['bands_real']['high'])} | {pct(m['bands_ai']['low'])} | {num(m['ece'])} "
             f"| {pct(m['extreme_share'])} |"
+        )
+
+    out.append("\n## Key metrics with 95% confidence intervals\n")
+    out.append("Intervals by stratified bootstrap (1,000 resamples). AP = average precision. *Caught @1% / @5% FA* = "
+               "share of AI images caught when at most 1% / 5% of real images are flagged. *\"Likely AI\" right* = "
+               "share of HIGH answers that are AI, at this dataset's real/AI mix. *Answered* = share not UNCERTAIN. "
+               "The last three use the app's bands and only mean something for calibrated rows (app as shipped, "
+               "app ensemble).\n")
+    out.append("| Dataset | Model | Condition | Preprocess | AUC | AP | Caught @1% FA | Caught @5% FA "
+               "| Real shown HIGH | AI shown LOW | \"Likely AI\" right | \"Likely not\" right | Answered | Mean AP per generator |")
+    out.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    for r in results:
+        m = r["metrics"]
+        if "ap" not in m:  # results written before these metrics existed
+            continue
+        a = m["answers"]
+        out.append(
+            f"| {r['dataset']} | {r['model']} | {r['condition']} | {r['preprocess']} "
+            f"| {with_ci(m, 'auc', m['auc'], num)} | {with_ci(m, 'ap', m['ap'], num)} "
+            f"| {with_ci(m, 'catch_at_1', m['catch_at_1'], pct)} | {with_ci(m, 'catch_at_5', m['catch_at_5'], pct)} "
+            f"| {with_ci(m, 'real_high', m['bands_real']['high'], pct)} | {with_ci(m, 'ai_low', m['bands_ai']['low'], pct)} "
+            f"| {with_ci(m, 'high_right', a['high_right'], pct)} | {pct(a['low_right'])} "
+            f"| {with_ci(m, 'answered', a['answered'], pct)} | {num(m['mean_generator_ap'])} |"
         )
 
     out.append("\n## Per generator (bundled: squash; candidates: native; app ensemble: as shipped)\n")

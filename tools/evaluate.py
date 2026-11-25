@@ -97,6 +97,13 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from metrics import (answer_quality, average_precision, bootstrap_ci, catch_rate_at_fpr,  # noqa: E402
+                     standard_statistics)
+
+# Bootstrap resamples behind every 95% confidence interval (GENNED_BOOTSTRAP=0 skips them).
+BOOTSTRAP_RESAMPLES = int(__import__("os").environ.get("GENNED_BOOTSTRAP", "1000"))
+
 try:
     import onnxruntime as ort
 except ImportError:  # pragma: no cover - dependency check, not test-covered
@@ -611,8 +618,10 @@ def _bands(scores: np.ndarray, low: float | None = None) -> dict[str, float]:
     }
 
 
-def compute_metrics(predictions: list[Prediction], threshold: float, low: float | None = None) -> dict:
-    """`low`: the LOW cut-off for the band shares (default: the photo one)."""
+def compute_metrics(predictions: list[Prediction], threshold: float, low: float | None = None,
+                    resamples: int | None = None) -> dict:
+    """`low`: the LOW cut-off for the band shares (default: the photo one). `resamples`:
+    bootstrap resamples for the 95% intervals (default BOOTSTRAP_RESAMPLES; 0 = none)."""
     labels = np.array([1 if p.ground_truth_is_ai else 0 for p in predictions], dtype=np.int64)
     scores = np.array([p.ai_probability for p in predictions], dtype=np.float64)
     predicted = scores >= threshold
@@ -626,11 +635,18 @@ def compute_metrics(predictions: list[Prediction], threshold: float, low: float 
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     ece, reliability_table = reliability(labels, scores)
 
+    low_cut = LOW_THRESHOLD if low is None else low
+    real_scores = scores[labels == 0]
     per_generator = {}
     for generator in sorted({p.generator for p in predictions}):
         generator_scores = np.array([p.ai_probability for p in predictions if p.generator == generator])
         is_real = generator == "real"
+        # AP of this generator against all real images (Community Forensics' per-generator mAP).
+        gen_ap = (float("nan") if is_real or len(real_scores) == 0 else average_precision(
+            np.r_[np.zeros(len(real_scores)), np.ones(len(generator_scores))],
+            np.r_[real_scores, generator_scores]))
         per_generator[generator] = {
+            "ap": gen_ap,
             "n": int(len(generator_scores)),
             # For AI generators: share detected; for real: share correctly passed.
             "correct_at_threshold": float(
@@ -658,8 +674,21 @@ def compute_metrics(predictions: list[Prediction], threshold: float, low: float 
         "bands_real": _bands(scores[labels == 0], low),
         "bands_ai": _bands(scores[labels == 1], low),
         "extreme_share": float(((scores > 0.99) | (scores < 0.01)).mean()) if total else 0.0,
+        "ap": average_precision(labels, scores),
+        "catch_at_1": catch_rate_at_fpr(labels, scores, 0.01),
+        "catch_at_5": catch_rate_at_fpr(labels, scores, 0.05),
+        "answers": answer_quality(labels, scores, low_cut, HIGH_THRESHOLD),
+        "mean_generator_ap": _nanmean([g["ap"] for g in per_generator.values()]),
+        "ci95": ({} if not (BOOTSTRAP_RESAMPLES if resamples is None else resamples) or total == 0 else
+                 {k: list(v) for k, v in bootstrap_ci(labels, scores, standard_statistics(low_cut, HIGH_THRESHOLD),
+                                                     BOOTSTRAP_RESAMPLES if resamples is None else resamples).items()}),
         "per_generator": per_generator,
     }
+
+
+def _nanmean(values: list[float]) -> float:
+    kept = [v for v in values if v == v]
+    return float(np.mean(kept)) if kept else float("nan")
 
 
 def print_report(predictions: list[Prediction], threshold: float, low: float | None = None) -> None:
