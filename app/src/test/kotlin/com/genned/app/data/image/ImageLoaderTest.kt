@@ -58,14 +58,25 @@ class ImageLoaderTest {
     }
 
     @Test
-    fun `an image claiming a huge size is refused before decoding`() = runTest {
+    fun `a file claiming a huge size fails with a specific exception, not a crash`() = runTest {
         // A valid PNG header claiming 30000 x 30000 pixels (900 megapixels) with almost no data.
+        // On a phone BitmapFactory reads the size from the header and the guard below gives
+        // TooLarge; Robolectric's decoder can't read a header-only file and says Unsupported.
         val file = File.createTempFile("bomb", ".png")
         file.writeBytes(pngHeader(30000, 30000))
 
         val exception = runCatching { loader.normalize(Uri.fromFile(file)) }.exceptionOrNull()
 
-        assertThat(exception).isInstanceOf(ImageLoadException.TooLarge::class.java)
+        assertThat(exception).isInstanceOf(ImageLoadException::class.java)
+    }
+
+    @Test
+    fun `the decompression-bomb guard refuses huge sizes before decoding and keeps real photos`() {
+        assertThat(ImageLoader.isDecompressionBomb(30000, 30000)).isTrue()      // 900 MP
+        assertThat(ImageLoader.isDecompressionBomb(200_000, 1_001)).isTrue()    // long thin strip
+        assertThat(ImageLoader.isDecompressionBomb(Int.MAX_VALUE, Int.MAX_VALUE)).isTrue() // no overflow
+        assertThat(ImageLoader.isDecompressionBomb(8160, 6120)).isFalse()       // 50 MP phone photo
+        assertThat(ImageLoader.isDecompressionBomb(12000, 12000)).isFalse()     // 144 MP panorama
     }
 
     @Test

@@ -67,8 +67,7 @@ class ImageLoader(private val context: Context) {
         // A guard against decompression-bomb-style inputs (e.g. a 1px-tall, 200000px
         // -wide PNG) rather than a claim about "large but reasonable" photos, which
         // downsample fine via inSampleSize below.
-        val megapixels = (bounds.outWidth.toLong() * bounds.outHeight.toLong()) / 1_000_000.0
-        if (megapixels > 200) {
+        if (isDecompressionBomb(bounds.outWidth, bounds.outHeight)) {
             throw ImageLoadException.TooLarge()
         }
 
@@ -76,12 +75,21 @@ class ImageLoader(private val context: Context) {
         val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sampleSize }
         val rawBitmap = try {
             BitmapFactory.decodeFile(originalFile.absolutePath, decodeOptions)
+        } catch (oom: OutOfMemoryError) {
+            throw ImageLoadException.TooLarge()
         } catch (io: Exception) {
             throw ImageLoadException.Corrupt()
         } ?: throw ImageLoadException.Corrupt()
 
-        val orientedBitmap = applyExifOrientation(originalFile, rawBitmap)
-        val boundedBitmap = downscaleIfNeeded(orientedBitmap, MAX_DIMENSION_PX)
+        // Rotating, scaling and re-encoding each need another full-size bitmap; on a phone
+        // short of memory that is "too large for this device", not a crash.
+        val (orientedBitmap, boundedBitmap) = try {
+            val oriented = applyExifOrientation(originalFile, rawBitmap)
+            oriented to downscaleIfNeeded(oriented, MAX_DIMENSION_PX)
+        } catch (oom: OutOfMemoryError) {
+            rawBitmap.recycle()
+            throw ImageLoadException.TooLarge()
+        }
 
         val screen = screenSize()
         val screenshot = ScreenshotCrop.isLikelyScreenshot(
@@ -96,8 +104,12 @@ class ImageLoader(private val context: Context) {
 
         val outFile = File(sharedCacheDir(context), "normalized_${UUID.randomUUID()}.jpg")
         createdFiles += outFile
-        FileOutputStream(outFile).use { out ->
-            boundedBitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+        try {
+            FileOutputStream(outFile).use { out ->
+                boundedBitmap.compress(Bitmap.CompressFormat.JPEG, 92, out)
+            }
+        } catch (oom: OutOfMemoryError) {
+            throw ImageLoadException.TooLarge()
         }
         val width = boundedBitmap.width
         val height = boundedBitmap.height
@@ -222,7 +234,9 @@ class ImageLoader(private val context: Context) {
                 ExifInterface.TAG_ORIENTATION,
                 ExifInterface.ORIENTATION_NORMAL,
             )
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            // Malformed EXIF (ExifInterface can throw more than IOException): keep the
+            // picture as stored rather than fail the whole check.
             ExifInterface.ORIENTATION_NORMAL
         }
 
@@ -252,6 +266,13 @@ class ImageLoader(private val context: Context) {
 
         /** Original-bytes copy guard; well above any legitimate shared photo. */
         private const val MAX_SOURCE_FILE_BYTES = 75L * 1024 * 1024
+
+        /** Above this many pixels an image is refused before any pixel is decoded. */
+        const val MAX_DECODE_MEGAPIXELS = 200
+
+        /** Long arithmetic, so a huge claimed width x height can't overflow. */
+        internal fun isDecompressionBomb(width: Int, height: Int): Boolean =
+            width.toLong() * height.toLong() > MAX_DECODE_MEGAPIXELS * 1_000_000L
 
         fun sharedCacheDir(context: Context): File =
             File(context.cacheDir, "shared").apply { mkdirs() }

@@ -29,6 +29,11 @@ object PngChunkReader {
             file.inputStream().use { readTextChunks(it.readBytes()) }
         } catch (io: IOException) {
             emptyList()
+        } catch (e: RuntimeException) {
+            // Best effort: a malformed file this parser didn't foresee gives no text, not a crash.
+            emptyList()
+        } catch (oom: OutOfMemoryError) {
+            emptyList()
         }
     }
 
@@ -37,20 +42,31 @@ object PngChunkReader {
             return emptyList()
         }
         val chunks = mutableListOf<TextChunk>()
+        // Text left to read from this file: every chunk counts, so many small compressed
+        // chunks can't add up to more than MAX_TOTAL_TEXT_BYTES between them.
+        var budget = MAX_TOTAL_TEXT_BYTES
         var offset = 8
         while (offset + 8 <= bytes.size) {
             val length = readInt32BigEndian(bytes, offset)
             val typeStart = offset + 4
-            if (length < 0 || typeStart + 4 + length + 4 > bytes.size) break
+            // Long arithmetic: a length near Int.MAX_VALUE must not wrap around and pass.
+            if (length < 0 || typeStart.toLong() + 4 + length + 4 > bytes.size) break
             val type = String(bytes, typeStart, 4, Charsets.US_ASCII)
             val dataStart = typeStart + 4
             val data = bytes.copyOfRange(dataStart, dataStart + length)
 
-            when (type) {
-                "tEXt" -> parseTextChunk(data)?.let(chunks::add)
-                "zTXt" -> parseCompressedTextChunk(data)?.let(chunks::add)
-                "iTXt" -> parseInternationalTextChunk(data)?.let(chunks::add)
+            val chunk = when (type) {
+                "tEXt" -> parseTextChunk(data)
+                "zTXt" -> parseCompressedTextChunk(data, minOf(MAX_INFLATED_BYTES, budget))
+                "iTXt" -> parseInternationalTextChunk(data, minOf(MAX_INFLATED_BYTES, budget))
                 "IEND" -> return chunks
+                else -> null
+            }
+            if (chunk != null) {
+                val value = if (chunk.value.length > budget) chunk.value.take(budget) else chunk.value
+                chunks += chunk.copy(value = value)
+                budget -= value.length
+                if (budget <= 0) return chunks
             }
 
             offset = dataStart + length + 4 // skip CRC
@@ -66,17 +82,17 @@ object PngChunkReader {
         return TextChunk(keyword, value)
     }
 
-    private fun parseCompressedTextChunk(data: ByteArray): TextChunk? {
+    private fun parseCompressedTextChunk(data: ByteArray, limit: Int): TextChunk? {
         val nullIndex = data.indexOf(0)
         if (nullIndex < 0 || nullIndex + 2 > data.size) return null
         val keyword = String(data, 0, nullIndex, Charsets.ISO_8859_1)
         // byte at nullIndex+1 is the compression method (always 0 = zlib/deflate)
         val compressed = data.copyOfRange(nullIndex + 2, data.size)
-        val inflated = inflate(compressed) ?: return null
+        val inflated = inflate(compressed, limit) ?: return null
         return TextChunk(keyword, String(inflated, Charsets.ISO_8859_1))
     }
 
-    private fun parseInternationalTextChunk(data: ByteArray): TextChunk? {
+    private fun parseInternationalTextChunk(data: ByteArray, limit: Int): TextChunk? {
         var index = data.indexOf(0)
         if (index < 0) return null
         val keyword = String(data, 0, index, Charsets.ISO_8859_1)
@@ -92,24 +108,24 @@ object PngChunkReader {
         index = translatedEnd + 1
         val textBytes = data.copyOfRange(index, data.size)
         val value = if (compressionFlag.toInt() == 1) {
-            inflate(textBytes)?.toString(Charsets.UTF_8) ?: return null
+            inflate(textBytes, limit)?.toString(Charsets.UTF_8) ?: return null
         } else {
             textBytes.toString(Charsets.UTF_8)
         }
         return TextChunk(keyword, value)
     }
 
-    private fun inflate(compressed: ByteArray): ByteArray? {
+    private fun inflate(compressed: ByteArray, limit: Int): ByteArray? {
         val inflater = Inflater()
         return try {
             inflater.setInput(compressed)
-            val output = java.io.ByteArrayOutputStream(minOf(compressed.size * 3, MAX_INFLATED_BYTES))
+            val output = java.io.ByteArrayOutputStream(minOf(compressed.size * 3, limit).coerceAtLeast(16))
             val buffer = ByteArray(4096)
-            while (!inflater.finished() && output.size() < MAX_INFLATED_BYTES) {
+            while (!inflater.finished() && output.size() < limit) {
                 val count = inflater.inflate(buffer)
                 // 0 also covers needsDictionary(), which would otherwise spin forever.
                 if (count == 0) break
-                output.write(buffer, 0, minOf(count, MAX_INFLATED_BYTES - output.size()))
+                output.write(buffer, 0, minOf(count, limit - output.size()))
             }
             output.toByteArray()
         } catch (e: Exception) {

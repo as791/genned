@@ -64,7 +64,11 @@ class VideoFrameSampler(private val context: Context) {
             }
             return sampleFrom(source, frames)
         } finally {
-            retriever.release()
+            try {
+                retriever.release()
+            } catch (e: Exception) {
+                // Releasing a broken retriever can throw; the frames are already saved.
+            }
         }
     }
 
@@ -82,8 +86,18 @@ class VideoFrameSampler(private val context: Context) {
             // where a fade-in/out or a black frame is more likely.
             val fraction = (i + 1).toFloat() / (FRAME_COUNT + 1)
             val timeUs = (durationMs * 1000 * fraction).toLong()
-            val bitmap = source.frameAt(timeUs) ?: continue
-            frames += saveFrame(bitmap)
+            val bitmap = try {
+                source.frameAt(timeUs)
+            } catch (oom: OutOfMemoryError) {
+                break // Check the frames read so far rather than crash.
+            } catch (e: RuntimeException) {
+                null // A corrupt frame: skip it, the others can still be checked.
+            } ?: continue
+            try {
+                frames += saveFrame(bitmap)
+            } catch (oom: OutOfMemoryError) {
+                break
+            }
         }
 
         if (frames.isEmpty()) throw VideoLoadException.Unsupported()
