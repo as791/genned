@@ -1,0 +1,105 @@
+name: Monthly freshness
+
+# Re-tests the shipped app every month on the sets with the newest generators (OpenFake's
+# test split, Community Forensics-Eval), unedited, and posts one line per set to the
+# pinned "Monthly freshness re-test" issue, with the change since last month. It shows
+# when a new generator starts slipping through. Images stay on the runners; only numbers
+# are uploaded and posted.
+on:
+  schedule:
+    - cron: '17 6 1 * *'   # 06:17 UTC on the 1st of each month
+  workflow_dispatch:
+    inputs:
+      samples_per_class:
+        description: Images per class (real / AI) per set
+        default: '250'
+
+permissions:
+  contents: read
+  actions: read    # last month's results
+  issues: write    # the tracking issue
+
+env:
+  DATASETS: openfake cf-eval
+  PER_CLASS: ${{ inputs.samples_per_class || '250' }}
+
+jobs:
+  retest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags, so the summary names the release that was tested
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (CPU only, no torch)
+        run: pip install "onnxruntime>=1.18,<2" "pillow>=10,<12" "numpy>=1.26,<3" "datasets>=2.19,<5"
+
+      - name: Fetch the sets
+        run: tools/fetch_all_eval_data.sh "$PER_CLASS" $DATASETS
+
+      - name: Score the app as shipped (unedited images)
+        run: |
+          mkdir -p results
+          for d in $DATASETS; do
+            if [ ! -d "eval-data/$d" ]; then echo "::warning::$d was not fetched"; continue; fi
+            python tools/evaluate.py \
+              --model app/src/main/assets/models/ai-image-detector.onnx \
+              --commfor-onnx app/src/main/assets/models/commfor-224.onnx --ensemble \
+              --dataset "eval-data/$d" --dataset-name "$d" --conditions original \
+              --preprocess avg --calibration app --model-name "app as shipped" \
+              --json-dir results > "results/$d.txt" || echo "::warning::$d failed to score"
+          done
+
+      - name: Last month's results
+        continue-on-error: true
+        run: |
+          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow freshness.yml --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -n "$previous" ]; then
+            gh run download "$previous" --repo "$GITHUB_REPOSITORY" --name freshness-results --dir previous
+          fi
+
+      - name: Summary
+        run: |
+          {
+            echo "### $(date -u +%Y-%m) re-test of the app as shipped ($(git describe --tags --always))"
+            echo
+            python tools/freshness_summary.py results --previous previous
+            echo
+            echo "_${PER_CLASS} images per class per set, unedited. [Run log]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)._"
+          } > summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          cat summary.md
+
+      - name: Post to the tracking issue
+        run: |
+          gh label create freshness --repo "$GITHUB_REPOSITORY" --color 0E8A16 \
+            --description "Monthly re-test of the shipped models" 2>/dev/null || true
+          issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --label freshness --state open \
+            --limit 1 --json number --jq '.[0].number // empty')
+          if [ -z "$issue" ]; then
+            printf '%s\n' \
+              "Each month the app as shipped is re-tested on the sets with the newest generators," \
+              "and one line per set is posted here (.github/workflows/freshness.yml). A drop in AUC" \
+              "of more than 0.03 since the month before is marked **dropped**." > intro.md
+            url=$(gh issue create --repo "$GITHUB_REPOSITORY" --title "Monthly freshness re-test" \
+              --label freshness --body-file intro.md)
+            issue=${url##*/}
+            gh issue pin "$issue" --repo "$GITHUB_REPOSITORY" || echo "::warning::could not pin issue $issue"
+          fi
+          gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body-file summary.md
+
+      - name: Upload results (numbers only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: freshness-results
+          path: results/*.json
