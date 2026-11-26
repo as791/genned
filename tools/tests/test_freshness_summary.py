@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import freshness_summary as fs  # noqa: E402
 
 
-def payload(dataset, auc, model="app as shipped", condition="original"):
+def payload(dataset, auc, model="app ensemble", condition="original"):
     return {"model": model, "dataset": dataset, "condition": condition, "metrics": {
         "n": 500, "auc": auc, "ci95": {"auc": [auc - 0.02, auc + 0.02]}, "catch_at_5": 0.6,
         "bands_real": {"high": 0.017}, "bands_ai": {"low": 0.07},
@@ -25,10 +25,12 @@ def write(directory, items):
 
 
 class FreshnessSummaryTest(unittest.TestCase):
-    def test_reads_only_the_shipped_app_on_unedited_images(self):
+    def test_reads_only_the_app_ensemble_on_unedited_images(self):
+        # "app as shipped" is the bundled model alone; the app itself is the ensemble.
         with tempfile.TemporaryDirectory() as tmp:
             write(tmp, [payload("openfake", 0.9), payload("openfake", 0.5, condition="jpeg75"),
-                        payload("openfake", 0.4, model="commfor")])
+                        payload("openfake", 0.4, model="commfor"),
+                        payload("openfake", 0.7, model="app as shipped")])
             (Path(tmp) / "broken.json").write_text("{")
             loaded = fs.load(Path(tmp))
             self.assertEqual(list(loaded), ["openfake"])

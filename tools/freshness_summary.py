@@ -18,11 +18,13 @@ import argparse
 import json
 from pathlib import Path
 
-MODEL = "app as shipped"
+# The app as it ships: both photo models combined (evaluate.py ENSEMBLE_MODEL_NAME). The
+# "app as shipped" rows are the bundled model alone, with the app's calibration.
+MODEL = "app ensemble"
 
 
 def load(results: Path) -> dict[str, dict]:
-    """{dataset: payload} for the shipped app on unedited images."""
+    """{dataset: payload} for the app as it ships (the ensemble) on unedited images."""
     out = {}
     for path in sorted(results.glob("*.json")):
         try:
