@@ -4,7 +4,8 @@
 # warning, not fatal.
 # Usage: tools/fetch_all_eval_data.sh [samples_per_class] [name ...]
 #   names: defactify, mj-dalle-sd-nbp (the default set), openfake, phone-photos (real only),
-#          unsplash-phone (real only), cf-eval, fairface (real only, with groups)
+#          unsplash-phone (real only), cf-eval, fairface (real only, with groups),
+#          magicbrush (real photos and their AI edits)
 set -u
 PER_CLASS="${1:-250}"
 shift || true
@@ -77,6 +78,12 @@ fetch() {
       # gender, with each photo's group in groups.csv (tools/group_report.py). 4 x PER_CLASS
       # photos, so each of the 14 groups gets enough for an interval.
       python tools/fetch_fairface.py --out eval-data/fairface --count $(( PER_CLASS * 4 ))
+      ;;
+    magicbrush)
+      # AI-edited real photos: MagicBrush (CC-BY-4.0, evaluation only), real MS-COCO photos
+      # and the same photo after one DALL-E 2 edit. "ai" here means "edited by AI"; both
+      # classes are saved as PNG at the same size (tools/fetch_magicbrush.py).
+      python tools/fetch_magicbrush.py --out eval-data/magicbrush --count "$PER_CLASS"
       ;;
     *)
       echo "::error::unknown dataset $1"
