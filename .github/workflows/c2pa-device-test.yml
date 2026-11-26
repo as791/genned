@@ -1,9 +1,14 @@
 name: Content Credentials device test
 
-# Runs C2paDeviceTest on an Android emulator against the real c2pa-android library: the
-# native reader, the stream adapter, the error mapping and the bundled trust lists. The
-# fixtures are made here with c2patool (same C2PA Rust SDK) and a throwaway test CA, so no
-# real signing key or third-party content is involved.
+# Runs the instrumented tests on an Android emulator against the real c2pa-android library:
+# - C2paDeviceTest: the native reader, the stream adapter, the error mapping and the
+#   bundled trust lists, on fixtures made here with c2patool (same C2PA Rust SDK) and a
+#   throwaway test CA, so no real signing key or third-party content is involved;
+# - C2paConformanceTest: every image and video sample in the C2PA SDK's own test set,
+#   compared with c2patool's verdict (tools/c2pa_expected.py);
+# - OnDeviceBenchmarkTest: time and peak memory per photo and video check (emulator:
+#   relative numbers for catching regressions, not phone speeds).
+# Results are copied from logcat into the job summary.
 on:
   workflow_dispatch:
   push:
@@ -15,6 +20,7 @@ on:
       - 'gradle/libs.versions.toml'
       - 'app/build.gradle.kts'
       - '.github/workflows/c2pa-device-test.yml'
+      - 'tools/c2pa_expected.py'
 
 jobs:
   device-test:
@@ -72,8 +78,13 @@ jobs:
           c2patool base.png -m m_ai.json -o ai.png -f > /dev/null
           c2patool base.mp4 -m m_ai.json -o ai.mp4 -f > /dev/null
           python3 -c "d=bytearray(open('ai.jpg','rb').read()); n=len(d)-2000; d[n:n+50]=bytes(50); open('tampered.jpg','wb').write(d)"
-          cp anchor.pem base.jpg ai.jpg capture.jpg ai.png ai.mp4 tampered.jpg "../$out/"
+          cp anchor.pem base.jpg base.mp4 ai.jpg capture.jpg ai.png ai.mp4 tampered.jpg "../$out/"
           ls -l "../$out"
+
+      - name: Conformance samples (c2patool's verdict on each SDK sample)
+        run: |
+          python3 tools/c2pa_expected.py --fixtures work/src/sdk/tests/fixtures work/src/cli/tests/fixtures \
+            --out app/src/androidTest/assets/c2pa-fixtures/conformance
 
       - name: Set up Android SDK
         run: |
@@ -98,8 +109,29 @@ jobs:
           target: google_apis
           disable-animations: true
           script: >-
-            ./gradlew connectedDebugAndroidTest --stacktrace
-            -Pandroid.testInstrumentationRunnerArguments.class=com.genned.app.data.detection.provenance.C2paDeviceTest
+            ./gradlew connectedDebugAndroidTest --stacktrace; status=$?;
+            adb logcat -d -s GennedBenchmark:I GennedConformance:I > device-results.txt; exit $status
+
+      - name: Results
+        if: always()
+        run: |
+          [ -f device-results.txt ] || exit 0
+          strip() { sed -n "s/.*$1: //p" device-results.txt; }
+          {
+            echo "## On-device cost (emulator, relative)"
+            echo
+            echo "| Measure | Value |"
+            echo "|---|---|"
+            strip GennedBenchmark | sed 's/^\([^=]*\)=\(.*\)$/| \1 | \2 |/'
+            echo
+            echo "## Content Credentials conformance with c2patool"
+            echo
+            strip GennedConformance | grep '^summary' || echo "(no summary)"
+            echo
+            echo "Files where Genned and c2patool differ:"
+            echo
+            strip GennedConformance | grep -v '^summary' | grep -v '| agree$' | sed 's/^/- /' || echo "- none"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Test report
         if: always()
