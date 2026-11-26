@@ -90,6 +90,16 @@ jobs:
       - name: Lint
         run: ./gradlew lint --stacktrace
 
+      # Robolectric downloads its Android runtime jars from Maven Central while the tests
+      # run; when that download fails, every Robolectric test fails before its body runs.
+      # Keep them between runs so a run downloads them only on a cache miss.
+      - name: Cache Robolectric's Android jars
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: robolectric-
+
       - name: Unit tests (domain + app)
         run: ./gradlew testDebugUnitTest :domain:test --stacktrace
 
