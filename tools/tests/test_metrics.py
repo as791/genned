@@ -72,6 +72,20 @@ class AnswerQualityTest(unittest.TestCase):
         self.assertEqual(q["answered"], 0.0)
 
 
+class WilsonTest(unittest.TestCase):
+    def test_known_values(self):
+        # 0 of 100: [0, 3.7%]; 10 of 100: [5.5%, 17.4%] (standard Wilson tables).
+        lo, hi = metrics.wilson(0, 100)
+        self.assertEqual(lo, 0.0)
+        self.assertAlmostEqual(hi, 0.0370, places=3)
+        lo, hi = metrics.wilson(10, 100)
+        self.assertAlmostEqual(lo, 0.0552, places=3)
+        self.assertAlmostEqual(hi, 0.1744, places=3)
+
+    def test_empty_is_nan(self):
+        self.assertTrue(all(np.isnan(v) for v in metrics.wilson(0, 0)))
+
+
 class BootstrapTest(unittest.TestCase):
     def test_interval_contains_the_value_and_narrows_with_more_data(self):
         rng = np.random.default_rng(3)

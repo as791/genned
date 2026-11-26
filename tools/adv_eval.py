@@ -86,6 +86,7 @@ from evaluate import (  # noqa: E402
     logit_difference,
     roc_auc,
 )
+from metrics import wilson  # noqa: E402
 
 import torch  # noqa: E402
 import torch.nn.functional as F  # noqa: E402
@@ -139,6 +140,51 @@ def jpeg(x: torch.Tensor, quality: int) -> torch.Tensor:
         buf.seek(0)
         out.append(torch.from_numpy(np.asarray(Image.open(buf).convert("RGB"), dtype=np.float32) / 255.0).permute(2, 0, 1))
     return torch.stack(out)
+
+
+def ssim(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """Structural similarity per image of two (B,3,H,W) batches in [0,1] (Wang et al. 2004:
+    11x11 Gaussian window, sigma 1.5, mean over channels and positions). 1 = identical;
+    above about 0.95 a change is hard to see."""
+    coords = torch.arange(11, dtype=torch.float32) - 5
+    g = torch.exp(-coords ** 2 / (2 * 1.5 ** 2))
+    g = g / g.sum()
+    window = (g[:, None] * g[None, :]).expand(3, 1, 11, 11).contiguous()
+
+    def blur(x: torch.Tensor) -> torch.Tensor:
+        return F.conv2d(x, window, groups=3)
+
+    a, b = a.float(), b.float()
+    mu_a, mu_b = blur(a), blur(b)
+    var_a = blur(a * a) - mu_a ** 2
+    var_b = blur(b * b) - mu_b ** 2
+    cov = blur(a * b) - mu_a * mu_b
+    c1, c2 = 0.01 ** 2, 0.03 ** 2
+    s = ((2 * mu_a * mu_b + c1) * (2 * cov + c2)) / ((mu_a ** 2 + mu_b ** 2 + c1) * (var_a + var_b + c2))
+    return s.mean(dim=(1, 2, 3))
+
+
+_LPIPS = None
+
+
+def lpips_distance(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor | None:
+    """LPIPS (AlexNet; Zhang et al. 2018) per image: a learned perceptual distance, 0 =
+    identical, about 0.1 and above is usually visible. None when the `lpips` package or its
+    weights aren't available (the report then shows SSIM only)."""
+    global _LPIPS
+    if _LPIPS is False:
+        return None
+    if _LPIPS is None:
+        try:
+            import lpips  # noqa: PLC0415
+
+            _LPIPS = lpips.LPIPS(net="alex", verbose=False).eval()
+        except Exception as e:  # noqa: BLE001 - optional measurement
+            print(f"LPIPS unavailable ({e}); reporting SSIM only", flush=True)
+            _LPIPS = False
+            return None
+    with torch.no_grad():
+        return torch.cat([_LPIPS(a[i:i + 8] * 2 - 1, b[i:i + 8] * 2 - 1).flatten() for i in range(0, len(a), 8)])
 
 
 def jpeg_ste(x: torch.Tensor, quality: int) -> torch.Tensor:
@@ -594,7 +640,7 @@ def main() -> None:
                         help="ensemble-params.json for a candidate model set (default: the app's APP_ENSEMBLE)")
     parser.add_argument("--clean-per-class", type=int, default=60)
     parser.add_argument("--attack-per-class", type=int, default=24)
-    parser.add_argument("--eps", default="4,8", help="L-inf budgets in /255")
+    parser.add_argument("--eps", default="2,4,8", help="L-inf budgets in /255")
     parser.add_argument("--steps", type=int, default=10)
     parser.add_argument("--eot", type=int, default=4)
     parser.add_argument("--square-queries", type=int, default=200)
@@ -616,7 +662,8 @@ def main() -> None:
         parser.error(f"unknown attacks {sorted(unknown)}; choose from {ATTACKS}")
     if args.smoke:
         args.clean_per_class, args.attack_per_class, args.steps, args.eot = 4, 2, 2, 2
-        args.square_queries, args.square_images, args.eps = 6, 1, "8"
+        args.square_queries, args.square_images = 6, 1
+        args.eps = args.eps if "," not in args.eps else "8"  # one budget per job is kept
         args.uap_fit_per_class, args.uap_epochs = 2, 1
 
     started = time.time()
@@ -705,7 +752,17 @@ def main() -> None:
     surrogate.slope, surrogate.intercept = 1.0, 0.0  # both surrogates: higher logit = more AI
     result["surrogate"] = "bundled" if ensemble_target else "community-forensics"
 
-    def record(name: str, eps: float, adv: torch.Tensor, goal: str) -> None:
+    def record(name: str, eps: float, adv: torch.Tensor, goal: str, original: torch.Tensor | None = None) -> None:
+        # How visible the attack is: SSIM and LPIPS between each original and attacked
+        # image (only where the attacked image is the original plus a perturbation, not
+        # after a crop/rescale).
+        visibility: dict = {}
+        if original is not None and original.shape == adv.shape:
+            s = ssim(original, adv)
+            visibility = {"ssim_mean": float(s.mean()), "ssim_min": float(s.min())}
+            d = lpips_distance(original, adv)
+            if d is not None:
+                visibility.update({"lpips_mean": float(d.mean()), "lpips_max": float(d.max())})
         for laundered in (False, True):
             x = jpeg(adv, 75) if laundered else adv
             o = {k: np.concatenate(v) for k, v in zip(
@@ -715,7 +772,8 @@ def main() -> None:
             result["attacks"].append({
                 "attack": name, "eps": eps, "goal": goal, "laundered": laundered, "n": int(len(x)),
                 "success": float(success.mean()), "flagged": float(o["flagged"].mean()),
-                "mean_prob": float(o["prob"].mean()),
+                "success_ci95": list(wilson(int(success.sum()), int(len(success)))),
+                "mean_prob": float(o["prob"].mean()), **visibility,
             })
             print(f"{name:>20} eps={eps:.0f}/255 {goal:<8} {'laundered' if laundered else 'direct':<9} "
                   f"success={success.mean():.1%} flagged={o['flagged'].mean():.1%} mean P={o['prob'].mean():.3f}",
@@ -735,45 +793,48 @@ def main() -> None:
         surrogates = load_surrogates([n for n in args.surrogates.split(",") if n], clean_x[:16])
         result["external_surrogates"] = [s.name for s in surrogates]
 
-    for eps_255 in [float(e) for e in args.eps.split(",")]:
+    budgets = [float(e) for e in args.eps.split(",")]
+    for eps_255 in budgets:
         eps = eps_255 / 255
         if "fgsm" in attacks:
-            record("fgsm", eps_255, batched(lambda b: fgsm(defense, b, eps, gen, args.eot, 1.0), ai_x), "evasion")
+            record("fgsm", eps_255, batched(lambda b: fgsm(defense, b, eps, gen, args.eot, 1.0), ai_x), "evasion", ai_x)
         if "pgd" in attacks:
             record("pgd (eot)", eps_255,
-                   batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, 1.0), ai_x), "evasion")
+                   batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, 1.0), ai_x), "evasion", ai_x)
             if isinstance(defense, Consistency):
                 record("pgd adaptive", eps_255,
                        batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, 1.0, adaptive=True), ai_x),
-                       "evasion")
+                       "evasion", ai_x)
         if "transfer" in attacks:
             record("transfer (surrogate)", eps_255,
-                   batched(lambda b: pgd(surrogate, b, eps, args.steps, gen, 1, 1.0), ai_x), "evasion")
+                   batched(lambda b: pgd(surrogate, b, eps, args.steps, gen, 1, 1.0), ai_x), "evasion", ai_x)
         if "framing" in attacks:
             record("pgd framing", eps_255,
                    batched(lambda b: pgd(defense, b, eps, args.steps, gen, args.eot, -1.0,
-                                         adaptive=isinstance(defense, Consistency)), real_x), "framing")
+                                         adaptive=isinstance(defense, Consistency)), real_x), "framing", real_x)
         if "uap" in attacks:
             for goal, direction, fit_x, test_x in (("evasion", 1.0, fit_ai, ai_x), ("framing", -1.0, fit_real, real_x)):
                 delta = fit_uap(defense, fit_x, eps, args.uap_epochs, gen, direction)
                 adv = (test_x + delta).clamp(0, 1)
-                record("uap", eps_255, adv, goal)
+                record("uap", eps_255, adv, goal, test_x)
                 geometry_gen = torch.Generator().manual_seed(args.seed + 4)
                 record("uap (cropped/rescaled)", eps_255,
                        torch.cat([random_geometry(a.unsqueeze(0), geometry_gen) for a in adv]), goal)
         if surrogates:
             record("transfer-ext (mi-di)", eps_255,
-                   batched(lambda b: mi_di_fgsm(surrogates, b, eps, args.steps, gen, 1.0), ai_x), "evasion")
+                   batched(lambda b: mi_di_fgsm(surrogates, b, eps, args.steps, gen, 1.0), ai_x), "evasion", ai_x)
             record("transfer-ext framing", eps_255,
-                   batched(lambda b: mi_di_fgsm(surrogates, b, eps, args.steps, gen, -1.0), real_x), "framing")
-    if "square" in attacks:
+                   batched(lambda b: mi_di_fgsm(surrogates, b, eps, args.steps, gen, -1.0), real_x), "framing", real_x)
+    if "square" in attacks and 8.0 in budgets:  # the black-box attack runs at 8/255 only
         square_x = ai_x[: args.square_images]
         record("square (black box)", 8.0, square_attack(defense, square_x, 8 / 255, args.square_queries, gen, 1.0),
-               "evasion")
+               "evasion", square_x)
 
     result["seconds"] = round(time.time() - started)
     args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / f"adv__{args.model}__{args.defense}.json").write_text(json.dumps(result, indent=2, default=float))
+    # One file per budget set, so budgets can run as parallel jobs (adv_report.py merges them).
+    tag = args.eps.replace(",", "-")
+    (args.out / f"adv__{args.model}__{args.defense}__eps{tag}.json").write_text(json.dumps(result, indent=2, default=float))
 
 
 if __name__ == "__main__":

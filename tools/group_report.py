@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -32,16 +31,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ensemble_calibrate import load_pairs  # noqa: E402
 from evaluate import APP_ENSEMBLE, HIGH_THRESHOLD, LOW_THRESHOLD, ensemble_score, load_ensemble_params  # noqa: E402
-
-
-def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    """95% Wilson score interval for k successes in n trials."""
-    if n == 0:
-        return float("nan"), float("nan")
-    p = k / n
-    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
-    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
-    return max(0.0, centre - half), min(1.0, centre + half)
+from metrics import wilson  # noqa: E402,F401  (re-exported: tests import it from here)
 
 
 def app_probability(d: float, c: float, params: dict) -> float:

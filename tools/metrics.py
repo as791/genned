@@ -86,6 +86,17 @@ def answer_quality(labels: np.ndarray, scores: np.ndarray, low: float, high: flo
     }
 
 
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """95% Wilson score interval for k successes in n trials (sound for small n and for
+    rates near 0 or 1, unlike the normal approximation); (nan, nan) when n is 0."""
+    if n == 0:
+        return float("nan"), float("nan")
+    p = k / n
+    centre = (p + z * z / (2 * n)) / (1 + z * z / n)
+    half = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / (1 + z * z / n)
+    return max(0.0, float(centre - half)), min(1.0, float(centre + half))
+
+
 def bootstrap_ci(labels: np.ndarray, scores: np.ndarray,
                  statistics: dict[str, Callable[[np.ndarray, np.ndarray], float]],
                  resamples: int = 1000, seed: int = 0, level: float = 0.95) -> dict[str, tuple[float, float]]:

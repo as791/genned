@@ -25,6 +25,51 @@ def pct(v):
     return "n/a" if v is None else f"{v:.1%}"
 
 
+def pct_ci(a: dict) -> str:
+    """Success rate with its 95% interval when the row has one."""
+    ci = a.get("success_ci95")
+    if not ci or ci[0] != ci[0]:
+        return pct(a["success"])
+    return f"{a['success']:.1%} [{ci[0]:.0%}–{ci[1]:.0%}]"
+
+
+def curve_table(results: list[dict]) -> list[str]:
+    """Success of each attack at each budget (direct, not laundered): how fast the detector
+    gives way as the attacker is allowed a bigger change."""
+    budgets = sorted({a["eps"] for r in results for a in r["attacks"]})
+    out = ["## Attack curves (success by budget, direct; 95% Wilson intervals)\n",
+           "| Model | Defense | Attack | Goal | " + " | ".join(f"{e:.0f}/255" for e in budgets) + " |",
+           "|---|---|---|---|" + "---|" * len(budgets)]
+    for r in results:
+        keys = dict.fromkeys((a["attack"], a["goal"]) for a in r["attacks"])
+        for attack, goal in keys:
+            cells = []
+            for e in budgets:
+                row = next((a for a in r["attacks"] if a["attack"] == attack and a["goal"] == goal
+                            and a["eps"] == e and not a["laundered"]), None)
+                cells.append(pct_ci(row) if row else "–")
+            out.append(f"| {r.get('model', 'bundled')} | {r['defense']} | {attack} | {goal} | " + " | ".join(cells) + " |")
+    return out
+
+
+def visibility_table(results: list[dict]) -> list[str]:
+    """How visible the attacks are: SSIM (1 = identical; above ~0.95 hard to see) and LPIPS
+    (0 = identical; ~0.1 and above usually visible) between original and attacked image."""
+    rows = [(r, a) for r in results for a in r["attacks"] if not a["laundered"] and "ssim_mean" in a]
+    if not rows:
+        return []
+    out = ["## How visible the attacks are (original vs attacked image)\n",
+           "SSIM: 1 = identical, above about 0.95 is hard to see. LPIPS: 0 = identical, about 0.1 and "
+           "above is usually visible.\n",
+           "| Model | Defense | Attack | eps /255 | Goal | SSIM mean | SSIM worst | LPIPS mean | LPIPS worst |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    for r, a in rows:
+        lp = (f"{a['lpips_mean']:.3f} | {a['lpips_max']:.3f}" if "lpips_mean" in a else "n/a | n/a")
+        out.append(f"| {r.get('model', 'bundled')} | {r['defense']} | {a['attack']} | {a['eps']:.0f} | {a['goal']} | "
+                   f"{a['ssim_mean']:.3f} | {a['ssim_min']:.3f} | {lp} |")
+    return out
+
+
 def worst(r, goal, eps=8.0, laundered=None):
     rows = [a for a in r["attacks"] if a["goal"] == goal and a["eps"] == eps
             and (laundered is None or a["laundered"] == laundered)]
@@ -64,6 +109,22 @@ def threat_table(results: list[dict], eps: float = 8.0) -> list[str]:
             out.append(f"| {r.get('model', 'bundled')} | {r['defense']} | {name} | {pct(ev)} | {pct(fr)} | "
                        f"{'–' if gate is None else f'<= {gate:.0%}'} | {verdict} |")
     return out
+
+
+def merge_budgets(results: list[dict]) -> list[dict]:
+    """One result per (model, defense): budgets run as separate jobs are joined, their
+    attacks concatenated in budget order. Clean metrics come from the first file (every
+    job scores the same clean split with the same seed)."""
+    merged: dict[tuple, dict] = {}
+    for r in results:
+        key = (r.get("model", "bundled"), r["defense"])
+        if key not in merged:
+            merged[key] = {**r, "attacks": list(r["attacks"])}
+        else:
+            merged[key]["attacks"] += r["attacks"]
+    for r in merged.values():
+        r["attacks"].sort(key=lambda a: a["eps"])  # stable: keeps each budget's attack order
+    return list(merged.values())
 
 
 def report_model(model: str, results: list[dict], max_cost: int) -> list[str]:
@@ -109,7 +170,7 @@ def main() -> None:
     parser.add_argument("--max-cost", type=int, default=6)
     args = parser.parse_args()
 
-    results = [json.loads(p.read_text()) for p in sorted(args.results.glob("adv__*.json"))]
+    results = merge_budgets([json.loads(p.read_text()) for p in sorted(args.results.glob("adv__*.json"))])
     if not results:
         print("No adversarial results.")
         return
@@ -127,13 +188,18 @@ def main() -> None:
 
     out += threat_table(results)
     out.append("")
+    out += curve_table(results)
+    out.append("")
+    vis = visibility_table(results)
+    if vis:
+        out += vis + [""]
     out.append("## All attacks\n")
     out.append("| Model | Defense | Attack | eps /255 | Goal | Laundered | n | Success | Abstained | Mean P(ai) |")
     out.append("|---|---|---|---|---|---|---|---|---|---|")
     for r in results:
         for a in r["attacks"]:
             out.append(f"| {r.get('model', 'bundled')} | {r['defense']} | {a['attack']} | {a['eps']:.0f} | {a['goal']} | "
-                       f"{'yes' if a['laundered'] else 'no'} | {a['n']} | {pct(a['success'])} | "
+                       f"{'yes' if a['laundered'] else 'no'} | {a['n']} | {pct_ci(a)} | "
                        f"{pct(a['flagged'])} | {a['mean_prob']:.3f} |")
     print("\n".join(out))
 
