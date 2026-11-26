@@ -61,8 +61,11 @@ jobs:
       - name: Last month's results
         continue-on-error: true
         run: |
+          # The latest successful run from an earlier month (a re-run this month is not "last month").
+          month=$(date -u +%Y-%m)
           previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow freshness.yml --status success \
-            --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+            --limit 30 --json databaseId,createdAt \
+            --jq "[.[] | select(.createdAt[0:7] != \"$month\")][0].databaseId // empty")
           if [ -n "$previous" ]; then
             gh run download "$previous" --repo "$GITHUB_REPOSITORY" --name freshness-results --dir previous
           fi
