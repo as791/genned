@@ -105,12 +105,30 @@ previous models re-run on the same images. Full results:
 | Real phone photos wrongly shown "Likely AI-generated" | 3.3% | 0.7% |
 | Newer AI generators (OpenFake): AI shown "Likely AI-generated" | 47% | 56% |
 | Newer AI generators (OpenFake): AUC | 0.925 | 0.953 |
-| AI images disguised as real by a universal adversarial pattern | 65% | 28% |
+| AI images disguised as real by a universal adversarial pattern | 65% | 28% (37% [29–46%] on a larger re-test) |
+
+**Harder and outside tests** (v0.5.0, 95% intervals in brackets; every number and run is in
+the [evaluation scorecard](internal-docs/MODEL.md#evaluation-scorecard-v050-november-2026)):
+
+| Test | Result |
+|---|---|
+| Community Forensics-Eval, an outside test set with thousands of generators: AUC | 0.868 [0.826–0.908] |
+| Same set: real images wrongly shown "Likely AI-generated" | 2.3% [0.7–4.3%] |
+| Real faces (FairFace), by ethnicity and gender: wrongly shown "Likely AI-generated" | 0–2.4% in every group |
+| Real photos of children aged 3–9: wrongly shown "Likely AI-generated" | 4.6% [2.3–9.3%] and 7.8% [3.6–16%] in two samples |
+| Real photos with part of the picture edited by AI: shown "Likely not AI-generated" | 56% [50–62%] |
+| Content Credentials: agreement with the C2PA reference tool on its 51 test files | 49 agree, 2 differ for known reasons |
 
 **Known limitations**
 
+- **AI edits of part of a real photo are usually missed.** More than half of real photos
+  with an AI-inpainted object come out "Likely not AI-generated": the models judge the
+  whole picture, and a small edited area barely changes it.
+- **Photos of young children are wrongly called AI more often** than photos of adults
+  (about 5–8% against about 1%). No ethnicity or gender group is affected this way.
 - Pictures from the newest closed AI tools are the hardest case, and often come out
-  "Uncertain".
+  "Uncertain". On an outside test set with thousands of generators the app is clearly
+  weaker than on its own test sets (AUC 0.868 against 0.90–1.00).
 - Everyday edits (grain, sharpening, screenshots of screenshots) can hide AI: up to 13% of
   edited AI images still come out "Likely not AI-generated".
 - Video is checked frame by frame, with no motion or audio analysis. On two video
@@ -151,7 +169,11 @@ against universal patterns and everyday edits.
 | Black-box queries | 70% | 40% |
 | White box (attacker has the models) | 100% | 100% |
 
-60 images per attack, at the same strength (8/255) before and after. Defences that didn't
+60 images per attack, at the same strength (8/255) before and after. A larger re-test of
+v0.5.0 (120 images, 95% intervals) puts the universal pattern at 37% [29–46%], transfer at
+57% [48–65%] and black-box queries at 33% [19–51%]; at strengths too small to see (2 to
+4/255) the universal pattern still fools 11 to 23% (details in the
+[scorecard](internal-docs/MODEL.md#deliberate-attacks)). Defences that didn't
 hold up against adaptive attackers, such as an input-consistency check, were not shipped.
 Genned is not robust to someone who has the model files and sets out to fool it.
 

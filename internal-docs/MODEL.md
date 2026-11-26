@@ -1029,6 +1029,158 @@ A fine-tune of Community Forensics on GenVideo frames was also tried and rejecte
 pair loads on the first video, so a session that checks both photos and video holds four
 models in memory instead of three.
 
+## Evaluation scorecard (v0.5.0, November 2026)
+
+The reference for later rounds: every measure, with its 95% interval, for the app as it
+ships (the two photo models combined, rows named `app ensemble` in `tools/evaluate.py`
+output; the `app as shipped` rows are the bundled model alone). Intervals: stratified
+bootstrap, 1,000 resamples (AUC, AP, catch rates, band rates); Wilson intervals for
+per-group rates and attack success. Every number below is copied from the linked run's
+report.
+
+**How the metrics read.**
+- *AUC*: the chance a random AI image scores above a random real one.
+- *AP*: average precision, area under the precision-recall curve.
+- *Caught @5% FA*: share of AI images caught when at most 5% of real images are flagged.
+- *Real shown HIGH*: real images wrongly shown "Likely AI-generated" (score ≥ 0.90; the
+  app's rule is at most 5%).
+- *AI shown LOW*: AI images shown "Likely not AI-generated" (score < 0.15).
+- *Answered*: share of images that get a definite answer, not "Uncertain".
+
+### Detection, unedited images
+
+[Robustness eval 45688402738](https://github.com/as791/genned/actions/runs/45688402738),
+150 images per class per set.
+
+| Set | AUC | AP | Caught @5% FA | Real shown HIGH | AI shown LOW | Answered |
+|---|---|---|---|---|---|---|
+| Defactify | 0.997 [0.994–0.999] | 0.997 | 98.3% | 0.0% | 0.7% | 82.7% |
+| OpenFake (newest generators) | 0.953 [0.935–0.968] | 0.961 | 83.3% | 0.0% | 7.3% | 71.8% |
+| MJ / DALL-E / SD / Nano Banana Pro | 0.896 [0.873–0.921] | 0.902 | 55.7% | 3.3% | 4.7% | 54.0% |
+| **Community Forensics-Eval** (external) | **0.868 [0.826–0.908]** | 0.790 | 60.9% | 2.3% [0.7–4.3%] | 9.1% | 62.2% |
+
+Community Forensics-Eval is its authors' own test set: thousands of generators (GANs,
+diffusion models, commercial tools; test only, CC-BY-NC-SA), so it is the closest to a
+fair external comparison. It is Genned's weakest set, but false alarms stay under the
+5% rule. Its weakest generators by AP are older GANs (DFGAN, Hourglass) and DALL-E 2
+([freshness run 45761979310](https://github.com/as791/genned/actions/runs/45761979310)).
+
+Not yet measured: Deepfake-Eval-2024 (gated on Hugging Face: the owner of the `HF_TOKEN`
+account has to accept its terms) and Chameleon (access on request from its authors).
+
+### AI-edited real photos
+
+[Robustness eval 45761053540](https://github.com/as791/genned/actions/runs/45761053540):
+MagicBrush test split, 250 real MS-COCO photos and the same photos after one AI edit
+(DALL-E 2 inpainting from an instruction such as "put a cat on the seat"), both saved as
+PNG at the same size.
+
+| Condition | AUC | Caught @5% FA | Edited shown LOW | Original shown HIGH |
+|---|---|---|---|---|
+| Unedited files | 0.621 [0.576–0.672] | 11.6% | **56.4% [50.4–62.4%]** | 0.8% |
+| After a social-media re-encode | 0.606 [0.559–0.656] | 10.8% | 58.4% [52.0–64.4%] | 0.8% |
+
+**The app does not detect AI edits of part of a real photo:** more than half are shown
+"Likely not AI-generated". The models score the whole image, and a small inpainted region
+barely moves the score.
+
+### Fairness: real photos wrongly shown "Likely AI-generated"
+
+FairFace (CC-BY-4.0), real faces balanced over ethnicity × gender. Two independent
+samples: 1,190 photos ([run 45688407389](https://github.com/as791/genned/actions/runs/45688407389))
+and 588 photos ([run 45762042272](https://github.com/as791/genned/actions/runs/45762042272)).
+A group is flagged above 5%, or above twice the overall rate with its interval wholly
+above it.
+
+| Group | 1,190-photo sample | 588-photo sample |
+|---|---|---|
+| All | 0.9% [0.5–1.6%] | 1.5% [0.8–2.9%] |
+| Each ethnicity (7 groups) | 0.0–1.8% | 0.0–2.4% |
+| Female / Male | 0.7% / 1.2% | 1.0% / 2.0% |
+| **Children aged 3–9** | **4.6% [2.3–9.3%], flagged** | **7.8% [3.6–16.0%], flagged** |
+| Aged 0–2 | 4.3% (1 of 23) | 9.1% (1 of 11), flagged |
+
+No ethnicity or gender group is flagged. **Young children are, in both samples:** their
+photos are wrongly called AI about five times as often as adults'. Real phone photos by
+phone make: no make flagged (Apple 0.5%, Samsung 1.6% of 64; after social edits Samsung
+4.7%).
+
+### Content Credentials
+
+- **Conformance with the reference tool**
+  ([device test 45765003049](https://github.com/as791/genned/actions/runs/45765003049)):
+  all 51 image and video samples in the C2PA SDK's test set, read the way the app reads
+  them, against c2patool 0.28.6. 49 agree; 2 differ for known reasons (a remote manifest,
+  which the app never fetches; an MP4 c2patool can't read either). With c2pa-android
+  0.0.17 one sample disagreed: `polyglot_signed.jpg`, a file valid as two formats at once,
+  was read as validly signed. Fixed by c2pa-android 0.1.2.
+- **Coverage** ([run 45762042272](https://github.com/as791/genned/actions/runs/45762042272)):
+  files carrying a C2PA manifest at all: 9 of 150 OpenFake AI images (6.0%), none in any
+  other set, real or AI. On these sets the check almost never decides a result; detection
+  does the work.
+
+### Cost on a device
+
+[Device test 45765003049](https://github.com/as791/genned/actions/runs/45765003049),
+Android emulator (x86_64, API 33). Emulator numbers are relative, for catching
+regressions, not phone speeds.
+
+| First photo check (loads models) | Later photo checks (median) | Video check (median) | Peak memory, photo / video |
+|---|---|---|---|
+| 1.9 s | 0.56 s | 2.8 s | 529 MB / 867 MB |
+
+APK sizes (v0.5.0 release): 190 MB (arm64-v8a), 177 MB (armeabi-v7a), 172 MB (x86_64),
+171 MB (x86), 263 MB universal.
+
+### Robustness to bad files
+
+Unit tests with a seeded fuzz loop (`PngChunkReaderTest`, `ImageLoaderTest`,
+`VideoFrameSamplerTest`) found five crashes, each fixed after its test failed first
+([red run 45688769620](https://github.com/as791/genned/actions/runs/45688769620), green run
+[45689575659](https://github.com/as791/genned/actions/runs/45689575659)): a PNG chunk
+length near the 32-bit limit; many small compressed text chunks exhausting memory; a
+video frame the decoder throws on; a video where every frame fails; running out of memory
+mid-video. Running out of memory while decoding, rotating or scaling an image, and
+malformed EXIF, now also end as "couldn't check" instead of a crash.
+
+### Freshness
+
+`.github/workflows/freshness.yml` re-tests the app on OpenFake and Community
+Forensics-Eval on the 1st of each month and posts one line per set to
+[issue #17](https://github.com/as791/genned/issues/17), marking an AUC drop above 0.03.
+
+### Deliberate attacks
+
+[Adversarial eval 45761322700](https://github.com/as791/genned/actions/runs/45761322700):
+the shipped ensemble, 120 attacked AI and 120 real images per row (30 for the black-box
+attack), one job per budget. Share of images an attack flips, direct (no re-save), with
+95% Wilson intervals:
+
+| Attack | 2/255 | 4/255 | 8/255 |
+|---|---|---|---|
+| White box (PGD with EOT), AI made to look real | 100% [97–100%] | 100% | 100% |
+| White box, real made to look AI | 100% | 100% | 100% |
+| **Universal pattern**, AI made to look real (gate ≤ 20% at 8/255) | 10.8% [6–18%] | 22.5% [16–31%] | **36.7% [29–46%]: fails** |
+| Same, after a crop and rescale | 2.5% | 5.0% | 29.2% [22–38%] |
+| Universal pattern, real made to look AI | 0.0% | 1.7% | 0.8% |
+| **Transfer from open detectors**, AI made to look real (gate ≤ 30%) | 22.5% [16–31%] | 37.5% [29–46%] | **56.7% [48–65%]: fails** |
+| Transfer from open detectors, real made to look AI | 3.3% | 2.5% | 4.2% |
+| Black box (score queries) | – | – | 33.3% [19–51%]; 20.0% after re-saving |
+
+**How visible the change is** (mean over attacked images; SSIM 1 = identical, above about
+0.95 hard to see; LPIPS 0 = identical, about 0.1 and above usually visible):
+
+| Budget | SSIM (PGD / universal / transfer) | LPIPS (PGD / universal / transfer) |
+|---|---|---|
+| 2/255 | 0.985 / 0.989 / 0.986 | 0.007 / 0.006 / 0.015 |
+| 4/255 | 0.949 / 0.957 / 0.950 | 0.031 / 0.032 / 0.059 |
+| 8/255 | 0.844 / 0.859 / 0.845 | 0.099 / 0.106 / 0.171 |
+
+So at budgets too small to see (2 to 4/255) anyone with the model files fools every check,
+a single published pattern fools 11 to 23%, and tools built on other open detectors fool
+23 to 38%. Round 4 reported the universal pattern at 28% on 60 images; this 120-image
+measurement, 36.7% [29–46%], is the better estimate (the two intervals overlap).
+
 ## Replacing the model file
 
 Follow these steps to re-export the model with `tools/convert_model.py` or replace

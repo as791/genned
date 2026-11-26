@@ -166,9 +166,10 @@
         <div class="stat"><div class="num">34%</div><div class="from">was 56%</div><p>Real phone photos that come out "Uncertain"</p></div>
         <div class="stat"><div class="num">0.7%</div><div class="from">was 3.3%</div><p>Real phone photos wrongly called "Likely AI-generated"</p></div>
         <div class="stat"><div class="num">56%</div><div class="from">was 47%</div><p>Images from newer AI generators caught as "Likely AI-generated"</p></div>
-        <div class="stat"><div class="num">28%</div><div class="from">was 65%</div><p>AI images that a universal adversarial pattern disguises as real</p></div>
+        <div class="stat"><div class="num">37%</div><div class="from">was 65%</div><p>AI images that a universal adversarial pattern disguises as real</p></div>
       </div>
-      <p class="note">Held-out benchmarks, 300 images per class, comparing Genned {{VERSION}} with the models it shipped before, on the same images. <a href="https://github.com/as791/genned/issues/16">Full results and method</a>.</p>
+      <p class="note">Held-out benchmarks, 300 images per class, comparing Genned {{VERSION}} with the models it shipped before, on the same images. The attack figure is a later, larger re-test (120 images; 95% interval 29–46%; 28% on the first 60). <a href="https://github.com/as791/genned/issues/16">Full results and method</a>.</p>
+      <p class="note">On an outside test set with thousands of AI generators (Community Forensics-Eval) Genned is weaker than on its own tests: AUC 0.868 (95% interval 0.826–0.908), with 2.3% of real images wrongly called AI. Real faces are treated the same across ethnicity and gender (0–2.4% wrongly called AI in every group). <a href="https://github.com/as791/genned/blob/main/internal-docs/MODEL.md#evaluation-scorecard-v050-november-2026">Every measure, with its interval</a>.</p>
 
       <div class="example" style="margin-top: 72px">
         <div class="profile">
@@ -181,6 +182,8 @@
           <blockquote>A profile that looks too perfect, plus "Uncertain", is a reason to be careful, not a reason to relax.</blockquote>
           <div class="limits">
             <ul>
+              <li>A real photo with part of it edited by AI is usually missed: more than half come out "Likely not AI-generated".</li>
+              <li>Real photos of young children are wrongly called AI more often than photos of adults (about 5–8% against about 1%).</li>
               <li>Pictures from the newest closed AI tools are the hardest case.</li>
               <li>Edits like grain, sharpening or screenshots of screenshots can hide AI: up to 13% of edited AI images still come out "Likely not AI-generated".</li>
               <li>Someone who sets out to fool it on purpose can.</li>
@@ -223,7 +226,7 @@
               <tr><td>White box (attacker has the models)</td><td>100%</td><td>100%</td></tr>
             </tbody>
           </table>
-          <p class="note">Share of AI images an attack disguises as real; lower is better. 60 images per attack, at the same attack strength before and after. Defences that didn't hold up against adaptive attackers were not shipped. Genned is not robust to someone who has the model files and sets out to fool it. <a href="https://github.com/as791/genned/blob/main/internal-docs/MODEL.md">Method and full results</a>.</p>
+          <p class="note">Share of AI images an attack disguises as real; lower is better. 60 images per attack, at the same attack strength before and after. A larger re-test (120 images) gives 37%, 57% and 33% for the first three, with 95% intervals of about ±8 points. Defences that didn't hold up against adaptive attackers were not shipped. Genned is not robust to someone who has the model files and sets out to fool it. <a href="https://github.com/as791/genned/blob/main/internal-docs/MODEL.md">Method and full results</a>.</p>
         </div>
       </div>
     </div>
