@@ -18,7 +18,7 @@ androidxTestExt = "1.2.1"
 espresso = "3.6.1"
 robolectric = "4.13"
 truth = "1.4.4"
-c2pa = "0.0.17"
+c2pa = "0.1.2"
 roborazzi = "1.46.1"
 
 [libraries]
