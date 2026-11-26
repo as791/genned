@@ -66,10 +66,12 @@ class OnDeviceBenchmarkTest {
         return (System.nanoTime() - start) / 1_000_000
     }
 
-    private fun report(key: String, value: Any) = Log.i(TAG, "$key=$value")
+    private fun report(key: String, value: Any) {
+        Log.i(TAG, "$key=$value")
+    }
 
     @Test
-    fun photoAndVideoCheckCost() = runBlocking {
+    fun photoAndVideoCheckCost(): Unit = runBlocking {
         val container = AppContainer(app)
         val photo = Uri.fromFile(fixture("base.jpg"))
         val video = Uri.fromFile(fixture("base.mp4"))
