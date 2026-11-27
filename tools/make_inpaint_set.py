@@ -108,12 +108,16 @@ def diffusers_inpaint(model: str, steps: int, threads: int | None) -> Callable:
 
     if threads:
         torch.set_num_threads(threads)
+    # Weights only from safetensors files: a pickled checkpoint can run code when loaded, so a
+    # model without safetensors fails here instead of falling back to pickle.
     if model.startswith("sd"):
-        pipe = AutoPipelineForInpainting.from_pretrained(MODELS[model], torch_dtype=torch.float32, safety_checker=None)
+        # The SD 1.5 mirror has safetensors only in its fp16 variant; it is upcast to fp32.
+        pipe = AutoPipelineForInpainting.from_pretrained(
+            MODELS[model], torch_dtype=torch.float32, variant="fp16", use_safetensors=True, safety_checker=None)
         # Fewer steps for the same quality; Kandinsky's decoder keeps its own scheduler.
         pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
     else:
-        pipe = AutoPipelineForInpainting.from_pretrained(MODELS[model], torch_dtype=torch.float32)
+        pipe = AutoPipelineForInpainting.from_pretrained(MODELS[model], torch_dtype=torch.float32, use_safetensors=True)
     pipe.set_progress_bar_config(disable=True)
 
     def run(image: Image.Image, mask: Image.Image, prompt: str, seed: int) -> Image.Image:
