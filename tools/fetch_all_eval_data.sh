@@ -100,7 +100,7 @@ fetch() {
     cf-train)
       # A check of the training fetch, and v0.5.0 on many open-weights generators: Community
       # Forensics training set (CC-BY-4.0), train rows of Systematic/Manual, 8 per generator.
-      python tools/fetch_commfor_train.py --out eval-data/cf-train --per-class "$PER_CLASS" --files 8 --groups-per-file 3
+      python tools/fetch_commfor_train.py --out eval-data/cf-train --per-class "$PER_CLASS" --files 6 --groups-per-file 8
       ;;
     magicbrush)
       # AI-edited real photos: MagicBrush (CC-BY-4.0, evaluation only), real MS-COCO photos

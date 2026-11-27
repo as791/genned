@@ -96,7 +96,10 @@ def main() -> None:
     parser.add_argument("--per-class", type=int, default=2000)
     parser.add_argument("--max-per-generator", type=int, default=8)
     parser.add_argument("--files", type=int, default=24, help="Files to read, spread over both subsets")
-    parser.add_argument("--groups-per-file", type=int, default=6, help="Row groups read per file")
+    parser.add_argument("--groups-per-file", type=int, default=20,
+                        help="Row groups read per file (each tends to hold one generator)")
+    parser.add_argument("--rows-per-group", type=int, default=48,
+                        help="Rows read from the start of each chosen row group")
     parser.add_argument("--exclude-generators", default=None)
     args = parser.parse_args()
 
@@ -112,10 +115,16 @@ def main() -> None:
     counts: Counter = Counter()
     seen: set[str] = set()
     for path in chosen:
-        with fs.open(path, "rb") as f:
-            parquet = pq.ParquetFile(f)
+        with fs.open(path, "rb", block_size=1 << 20) as f:
+            # Row groups here can be gigabytes: read a few small batches from the start of
+            # each chosen group (no pre-buffering), never a whole group.
+            parquet = pq.ParquetFile(f, pre_buffer=False, buffer_size=1 << 20)
             for group in spread(parquet.num_row_groups, args.groups_per_file):
-                rows = parquet.read_row_group(group, columns=COLUMNS).to_pylist()
+                rows: list[dict] = []
+                for batch in parquet.iter_batches(batch_size=16, row_groups=[group], columns=COLUMNS):
+                    rows += batch.to_pylist()
+                    if len(rows) >= args.rows_per_group:
+                        break
                 for key, data, ext in select(rows, args.per_class, args.max_per_generator, exclude, counts, seen):
                     folder = args.out / "real" if key == "real" else args.out / "ai" / key
                     folder.mkdir(parents=True, exist_ok=True)
@@ -123,10 +132,11 @@ def main() -> None:
         ai = sum(n for k, n in counts.items() if k != "real")
         print(f"{path.rsplit('/', 2)[-2:]}: real {counts['real']}, AI {ai} from {len(counts) - ('real' in counts)} generators",
               flush=True)
-        if counts["real"] >= args.per_class and ai >= args.per_class:
+        if ai >= args.per_class:
             break
     ai = sum(n for k, n in counts.items() if k != "real")
-    print(f"Kept {counts['real']} real and {ai} AI images from {len(counts) - ('real' in counts)} generators")
+    print(f"Kept {counts['real']} real and {ai} AI images from {len(counts) - ('real' in counts)} generators "
+          "(real photos come from the other training sets)")
     if ai < args.per_class // 4:
         sys.exit("Too few images; check the layout with the Dataset probe workflow.")
 
