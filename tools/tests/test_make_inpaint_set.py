@@ -70,5 +70,11 @@ class SourcesTest(unittest.TestCase):
             self.assertFalse(shards[0] & shards[1] or shards[1] & shards[2] or shards[0] & shards[2])
 
 
+class PairNameTest(unittest.TestCase):
+    def test_tag_keeps_jobs_apart(self):
+        self.assertEqual(mi.pair_name("sd15", "07", 3), "sd15-07-00003.png")
+        self.assertNotEqual(mi.pair_name("sd15", "07", 3), mi.pair_name("sd15", "08", 3))
+
+
 if __name__ == "__main__":
     unittest.main()

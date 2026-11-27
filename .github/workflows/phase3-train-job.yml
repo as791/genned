@@ -167,15 +167,25 @@ jobs:
 
       # Real photos and the same photos AI-inpainted (inpaint-data.yml; open-weights models
       # only). Every 10th pair is kept for validation, both halves of a pair on the same side.
+      # Each artifact goes to its own folder first: older batches reused file names across
+      # jobs, so a plain merge would overwrite pairs. Names get the artifact name in front, and
+      # a pair whose real photo was already kept (overlapping photo samples) is skipped.
       - name: Download the inpainting pairs
         if: inputs.inpaint_run_id != ''
-        uses: actions/download-artifact@v4
-        with:
-          pattern: inpaint-*
-          merge-multiple: true
-          path: data/train/inpaint
-          run-id: ${{ inputs.inpaint_run_id }}
-          github-token: ${{ github.token }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_IDS: ${{ inputs.inpaint_run_id }}
+        run: |
+          for id in $RUN_IDS; do
+            for attempt in 1 2 3; do
+              rm -rf "inpaint-src/$id"
+              gh run download "$id" --repo "$GITHUB_REPOSITORY" --pattern 'inpaint-*' --dir "inpaint-src/$id" && break
+              echo "Download of run $id failed (attempt $attempt); retrying in 30 s"; sleep 30
+              [ "$attempt" = 3 ] && { echo "::error::Could not download the inpainting pairs of run $id"; exit 1; }
+            done
+          done
+          python3 tools/merge_inpaint_pairs.py --out data/train/inpaint inpaint-src/*/*
+          rm -rf inpaint-src
 
       - name: Hold out inpainting pairs for validation
         if: inputs.inpaint_run_id != ''

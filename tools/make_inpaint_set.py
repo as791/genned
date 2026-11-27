@@ -134,6 +134,11 @@ def sources(folders: list[Path], shard: int, shards: int, seed: int) -> list[Pat
     return files[shard::shards]
 
 
+def pair_name(model: str, tag: str, n: int) -> str:
+    """File name shared by a real photo and its edit; `tag` keeps jobs apart."""
+    return f"{model}-{tag}-{n:05d}.png"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sources", type=Path, nargs="+", required=True, help="Folders of real photos")
@@ -148,7 +153,10 @@ def main() -> None:
     parser.add_argument("--max-minutes", type=float, default=None, help="Stop cleanly after this long")
     parser.add_argument("--threads", type=int, default=None)
     parser.add_argument("--seed", type=int, default=2026)
+    parser.add_argument("--name-tag", default=None,
+                        help="Part of every file name, unique per job (default: the shard, 2 digits)")
     args = parser.parse_args()
+    tag = args.name_tag or f"{args.shard:02d}"
 
     started = time.time()
     rng = random.Random(args.seed * 1000 + args.shard)
@@ -164,14 +172,14 @@ def main() -> None:
                 real, edited, meta = make_pair(photo, inpaint, rng, args.size, args.paste_share)
         except OSError:
             continue
-        name = f"{args.model}-{args.shard:02d}-{len(rows):05d}.png"
+        name = pair_name(args.model, tag, len(rows))
         real.save(args.out / "real" / name)
         edited.save(args.out / "ai" / name)
         rows.append({"file": name, "model": args.model, "source": path.parent.parent.name, **meta})
         if len(rows) % 10 == 0:
             per = (time.time() - started) / len(rows)
             print(f"{len(rows)} pairs, {per:.0f} s each", flush=True)
-    with (args.out / f"pairs-{args.model}-{args.shard:02d}.csv").open("w", newline="") as f:
+    with (args.out / f"pairs-{args.model}-{tag}.csv").open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=["file", "model", "source", "prompt", "mask_area", "pasted"])
         writer.writeheader()
         writer.writerows(rows)

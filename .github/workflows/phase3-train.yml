@@ -54,7 +54,7 @@ on:
         description: Images per class from the Community Forensics training set (many open-weights generators, 8 each); 0 = none
         default: '0'
       inpaint_run_id:
-        description: Inpainting training data run (inpaint-data.yml) whose real/AI-edited pairs to add; empty = none
+        description: Inpainting training data runs (inpaint-data.yml), space-separated ids, whose real/AI-edited pairs to add; empty = none
         default: ''
       jobs:
         description: Chained 6-hour jobs (3 for the round 4 defaults; a job is skipped once training has finished)

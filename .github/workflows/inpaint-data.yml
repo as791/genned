@@ -3,15 +3,25 @@ name: Inpainting training data
 # Training pairs for AI edits of part of a real photo (tools/make_inpaint_set.py): real
 # phone photos (LAION-Mobile train shards, never COCO, so MagicBrush's test photos can't
 # leak in) and the same photos after an open-weights inpainting model filled a random area.
-# Two models, three shards each, in parallel on CPU runners. The pairs are uploaded as
+# Two models, several jobs each (shards), in parallel on CPU runners. A later batch uses a
+# shard offset so its photos (seed 777 + shard) and artifact names differ from earlier ones. The pairs are uploaded as
 # workflow artifacts for the training job (phase3-train.yml inpaint_run_id) and never
 # leave GitHub Actions.
 on:
   workflow_dispatch:
     inputs:
       pairs_per_shard:
-        description: Pairs per shard (6 shards; a shard stops early when its time runs out)
+        description: Pairs per job (a job stops early when its time runs out)
         default: '300'
+      kandinsky_jobs:
+        description: Jobs with Kandinsky 2.2 (about 55 pairs each; half the speed of SD 1.5)
+        default: '3'
+      sd15_jobs:
+        description: Jobs with SD 1.5 (about 100 pairs each)
+        default: '3'
+      shard_offset:
+        description: First shard number (use one past the last batch's, e.g. 6 after shards 0-5)
+        default: '0'
       smoke:
         description: Tiny run (2 pairs, 2 steps) to check the pipeline
         type: boolean
@@ -21,19 +31,31 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - id: m
+        env:
+          KANDINSKY: ${{ inputs.kandinsky_jobs }}
+          SD15: ${{ inputs.sd15_jobs }}
+          OFFSET: ${{ inputs.shard_offset }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          jobs = ["kandinsky22"] * int(os.environ["KANDINSKY"]) + ["sd15"] * int(os.environ["SD15"])
+          offset = int(os.environ["OFFSET"])
+          print("matrix=" + json.dumps({"include": [{"model": m, "shard": offset + i} for i, m in enumerate(jobs)]}))
+          PY
+
   make:
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { model: kandinsky22, shard: 0 }
-          - { model: kandinsky22, shard: 1 }
-          - { model: kandinsky22, shard: 2 }
-          - { model: sd15, shard: 3 }
-          - { model: sd15, shard: 4 }
-          - { model: sd15, shard: 5 }
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
     steps:
@@ -76,7 +98,7 @@ jobs:
           echo "Time for making pairs: $MINUTES min"
           python -u tools/make_inpaint_set.py --sources data/src/phone --out out/inpaint \
             --count "$COUNT" --shard 0 --shards 1 --model "$MODEL" --steps "$STEPS" \
-            --max-minutes "$MINUTES" --threads 4 --seed $(( 2026 + SHARD ))
+            --max-minutes "$MINUTES" --threads 4 --seed $(( 2026 + SHARD )) --name-tag "$(printf %02d "$SHARD")"
           ls out/inpaint/real | wc -l
 
       - name: Upload the pairs (CI artifact only)
