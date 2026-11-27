@@ -1,0 +1,87 @@
+name: Inpainting training data
+
+# Training pairs for AI edits of part of a real photo (tools/make_inpaint_set.py): real
+# phone photos (LAION-Mobile train shards, never COCO, so MagicBrush's test photos can't
+# leak in) and the same photos after an open-weights inpainting model filled a random area.
+# Two models, three shards each, in parallel on CPU runners. The pairs are uploaded as
+# workflow artifacts for the training job (phase3-train.yml inpaint_run_id) and never
+# leave GitHub Actions.
+on:
+  workflow_dispatch:
+    inputs:
+      pairs_per_shard:
+        description: Pairs per shard (6 shards; a shard stops early when its time runs out)
+        default: '300'
+      smoke:
+        description: Tiny run (2 pairs, 2 steps) to check the pipeline
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  make:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { model: sd2, shard: 0 }
+          - { model: sd2, shard: 1 }
+          - { model: sd2, shard: 2 }
+          - { model: sd15, shard: 3 }
+          - { model: sd15, shard: 4 }
+          - { model: sd15, shard: 5 }
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the clock
+        run: echo "JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies (CPU-only torch)
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install "diffusers>=0.30,<1" "transformers>=4.40,<5" "accelerate>=0.30,<2" \
+            "huggingface_hub>=0.23,<1" "pillow>=10,<12" "numpy>=1.26,<3" "datasets>=2.19,<5"
+
+      - name: Fetch real phone photos (LAION-Mobile train shards)
+        env:
+          SHARD: ${{ matrix.shard }}
+          COUNT: ${{ inputs.smoke && '4' || inputs.pairs_per_shard }}
+        run: |
+          for attempt in 1 2 3; do
+            python -u tools/fetch_mds_photos.py --dataset sumathiselvan/LAION-Mobile-streaming \
+              --out data/src/phone --count $(( COUNT + COUNT / 4 + 2 )) --split train --seed $(( 777 + SHARD )) \
+              && break
+            echo "Phone photo fetch failed (attempt $attempt); retrying in 30 s"; sleep 30
+            [ "$attempt" = 3 ] && { echo "::error::Could not fetch the phone photos"; exit 1; }
+          done
+
+      - name: Make pairs with ${{ matrix.model }}
+        env:
+          MODEL: ${{ matrix.model }}
+          SHARD: ${{ matrix.shard }}
+          COUNT: ${{ inputs.smoke && '2' || inputs.pairs_per_shard }}
+          STEPS: ${{ inputs.smoke && '2' || '15' }}
+        run: |
+          # Whatever is left of the 350-minute job, minus 15 min to save and upload.
+          MINUTES=$(python3 -c "import os,time; print(max(5, round((350*60 - (time.time()-int(os.environ['JOB_STARTED'])) - 15*60)/60)))")
+          echo "Time for making pairs: $MINUTES min"
+          python -u tools/make_inpaint_set.py --sources data/src/phone --out out/inpaint \
+            --count "$COUNT" --shard 0 --shards 1 --model "$MODEL" --steps "$STEPS" \
+            --max-minutes "$MINUTES" --threads 4 --seed $(( 2026 + SHARD ))
+          ls out/inpaint/real | wc -l
+
+      - name: Upload the pairs (CI artifact only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: inpaint-${{ matrix.model }}-${{ matrix.shard }}
+          path: out/inpaint/
+          retention-days: 30
