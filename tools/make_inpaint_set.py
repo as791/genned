@@ -19,7 +19,7 @@ Images stay on the CI runner (uploaded only as a workflow artifact for the train
 
 Usage (one shard of several, e.g. in a job matrix):
     python tools/make_inpaint_set.py --sources data/src/openfake/real data/src/phone/real \\
-        --out out/inpaint --count 300 --shard 0 --shards 6 --model sd2
+        --out out/inpaint --count 300 --shard 0 --shards 6 --model sd15
 """
 
 from __future__ import annotations
@@ -35,8 +35,8 @@ from PIL import Image, ImageDraw, ImageFilter
 
 # Open-weights inpainting models (diffusers repos).
 MODELS = {
-    "sd2": "stabilityai/stable-diffusion-2-inpainting",
     "sd15": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+    "kandinsky22": "kandinsky-community/kandinsky-2-2-decoder-inpaint",
 }
 OBJECTS = [
     "a cat", "a dog", "a bird", "a car", "a bicycle", "a person", "a child", "a man", "a woman",
@@ -108,8 +108,12 @@ def diffusers_inpaint(model: str, steps: int, threads: int | None) -> Callable:
 
     if threads:
         torch.set_num_threads(threads)
-    pipe = AutoPipelineForInpainting.from_pretrained(MODELS[model], torch_dtype=torch.float32, safety_checker=None)
-    pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+    if model.startswith("sd"):
+        pipe = AutoPipelineForInpainting.from_pretrained(MODELS[model], torch_dtype=torch.float32, safety_checker=None)
+        # Fewer steps for the same quality; Kandinsky's decoder keeps its own scheduler.
+        pipe.scheduler = DPMSolverMultistepScheduler.from_config(pipe.scheduler.config)
+    else:
+        pipe = AutoPipelineForInpainting.from_pretrained(MODELS[model], torch_dtype=torch.float32)
     pipe.set_progress_bar_config(disable=True)
 
     def run(image: Image.Image, mask: Image.Image, prompt: str, seed: int) -> Image.Image:
@@ -133,7 +137,7 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=300, help="Pairs to make in this shard")
     parser.add_argument("--shard", type=int, default=0)
     parser.add_argument("--shards", type=int, default=1)
-    parser.add_argument("--model", choices=sorted(MODELS), default="sd2")
+    parser.add_argument("--model", choices=sorted(MODELS), default="sd15")
     parser.add_argument("--size", type=int, default=512)
     parser.add_argument("--steps", type=int, default=15)
     parser.add_argument("--paste-share", type=float, default=0.7)

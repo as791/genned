@@ -28,9 +28,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { model: sd2, shard: 0 }
-          - { model: sd2, shard: 1 }
-          - { model: sd2, shard: 2 }
+          - { model: kandinsky22, shard: 0 }
+          - { model: kandinsky22, shard: 1 }
+          - { model: kandinsky22, shard: 2 }
           - { model: sd15, shard: 3 }
           - { model: sd15, shard: 4 }
           - { model: sd15, shard: 5 }
