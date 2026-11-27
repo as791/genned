@@ -5,7 +5,8 @@
 # Usage: tools/fetch_all_eval_data.sh [samples_per_class] [name ...]
 #   names: defactify, mj-dalle-sd-nbp (the default set), openfake, phone-photos (real only),
 #          unsplash-phone (real only), cf-eval, fairface (real only, with groups),
-#          magicbrush (real photos and their AI edits)
+#          magicbrush (real photos and their AI edits), utkface (real, by age),
+#          gan-faces (StyleGAN faces vs real)
 set -u
 PER_CLASS="${1:-250}"
 shift || true
@@ -78,6 +79,18 @@ fetch() {
       # gender, with each photo's group in groups.csv (tools/group_report.py). 4 x PER_CLASS
       # photos, so each of the 14 groups gets enough for an interval.
       python tools/fetch_fairface.py --out eval-data/fairface --count $(( PER_CLASS * 4 ))
+      ;;
+    utkface)
+      # Real only, test only: UTKFace in-the-wild faces (non-commercial research use) balanced
+      # over age buckets, an independent check of false alarms on young children (groups.csv).
+      python tools/fetch_utkface.py --out eval-data/utkface --count $(( PER_CLASS * 4 ))
+      ;;
+    gan-faces)
+      # Test only: StyleGAN faces against real faces (140k Real and Fake Faces; licence "cc",
+      # real faces from FFHQ, non-commercial): a guardrail that training on real faces doesn't
+      # make the app call AI faces real.
+      python tools/fetch_eval_data.py --dataset TheKernel01/140k-Real-and-Fake-Faces --split test \
+        --out eval-data/gan-faces --per-class "$PER_CLASS" --label-col label
       ;;
     magicbrush)
       # AI-edited real photos: MagicBrush (CC-BY-4.0, evaluation only), real MS-COCO photos
