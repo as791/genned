@@ -10,8 +10,9 @@ Only the "Systematic" and "Manual" subsets are read, and only rows whose own `sp
 "train": "Commercial" holds proprietary generators (never trained on) and "PublicEval" is
 kept apart from the evaluation. Any model name matching --exclude-generators is skipped as
 well. The files are huge and ordered by generator, so instead of streaming them this reads
-a few row groups spread evenly through each file (parquet allows reading one row group at
-a time), keeping at most --max-per-generator images per generator. Writes:
+a few small batches from row groups spread through each file (parquet allows reading one
+row group at a time), keeping at most --max-per-generator images per generator. A file
+holds about one generator, so all files are read by default (about 4 s each). Writes:
 
     <out>/real/<n>.<ext>                 original bytes
     <out>/ai/<generator>/<n>.<ext>       original bytes, generator = model name with / -> _
@@ -95,7 +96,8 @@ def main() -> None:
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--per-class", type=int, default=2000)
     parser.add_argument("--max-per-generator", type=int, default=8)
-    parser.add_argument("--files", type=int, default=24, help="Files to read, spread over both subsets")
+    parser.add_argument("--files", type=int, default=0,
+                        help="Files to read, spread over both subsets (0 = all; each holds about one generator)")
     parser.add_argument("--groups-per-file", type=int, default=20,
                         help="Row groups read per file (each tends to hold one generator)")
     parser.add_argument("--rows-per-group", type=int, default=48,
@@ -110,7 +112,7 @@ def main() -> None:
     files = sorted(p for s in SUBSETS for p in fs.glob(f"datasets/{DATASET}/data/{s}/*.parquet"))
     if not files:
         sys.exit("No Systematic/Manual parquet files found; check the layout with the Dataset probe.")
-    chosen = [files[i] for i in spread(len(files), args.files)]
+    chosen = files if args.files <= 0 else [files[i] for i in spread(len(files), args.files)]
     exclude = re.compile(args.exclude_generators, re.IGNORECASE) if args.exclude_generators else None
     counts: Counter = Counter()
     seen: set[str] = set()
