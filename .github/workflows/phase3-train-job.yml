@@ -20,6 +20,7 @@ on:
       edit_consistency: {type: string, default: '0'}
       openfake_max_per_generator: {type: string, default: '600'}
       faces_real: {type: string, default: '0'}
+      commfor_train_per_class: {type: string, default: '0'}
       inpaint_run_id: {type: string, default: ''}
       resume: {type: boolean, default: false}
       resume_run_id: {type: string, default: ''}
@@ -73,6 +74,7 @@ jobs:
           VIDEO_FRAMES: ${{ inputs.video_frames }}
           OPENFAKE_MAX_PER_GENERATOR: ${{ inputs.openfake_max_per_generator }}
           FACES_REAL: ${{ inputs.faces_real }}
+          CFTRAIN_PER_CLASS: ${{ inputs.commfor_train_per_class }}
         run: |
           PROPRIETARY="midjourney|dall-?e|gpt-image|imagen|ideogram|grok|recraft|seedream|nano-banana|mystic|veo|sora|kling|firefly|runway|luma|hailuo|ernie|seededit|gemini"
           fetch() {
@@ -125,6 +127,17 @@ jobs:
                   --count "$FACES_REAL" --young-share 0.5 --seed 4321 && break
               echo "FairFace fetch failed (attempt $attempt); retrying in 30 s"; sleep 30
               [ "$attempt" = 3 ] && { echo "::error::Could not fetch the FairFace training faces"; exit 1; }
+            done
+          fi
+          # Many open-weights generators, a few images each (Community Forensics training set,
+          # CC-BY-4.0; Systematic and Manual subsets, train rows only; proprietary names excluded).
+          if [ "${CFTRAIN_PER_CLASS:-0}" -gt 0 ]; then
+            for attempt in 1 2 3; do
+              rm -rf data/train/cftrain
+              python -u tools/fetch_commfor_train.py --out data/train/cftrain --per-class "$CFTRAIN_PER_CLASS" \
+                  --max-per-generator 8 --exclude-generators "$PROPRIETARY" && break
+              echo "Community Forensics fetch failed (attempt $attempt); retrying in 30 s"; sleep 30
+              [ "$attempt" = 3 ] && { echo "::error::Could not fetch the Community Forensics training images"; exit 1; }
             done
           fi
           # Video frames (GenVideo; clips stay on the runner), sampled the way the app samples
@@ -206,6 +219,7 @@ jobs:
           EDIT_CONSISTENCY: ${{ inputs.edit_consistency }}
           FACES_REAL: ${{ inputs.faces_real }}
           INPAINT: ${{ inputs.inpaint_run_id != '' }}
+          CFTRAIN_PER_CLASS: ${{ inputs.commfor_train_per_class }}
         run: |
           set -o pipefail
           extra=()
@@ -232,6 +246,7 @@ jobs:
             train_data+=(data/train/faces); [[ " ${extra[*]} " == *" --balance-classes "* ]] || extra+=(--balance-classes)
           fi
           [ "$INPAINT" = "true" ] && { train_data+=(data/train/inpaint); val_data+=(data/val/inpaint); }
+          [ "${CFTRAIN_PER_CLASS:-0}" -gt 0 ] && train_data+=(data/train/cftrain)
           [ -n "$EDIT_WEIGHTS" ] && extra+=(--edit-weights "$EDIT_WEIGHTS")
           [ "${EDIT_CONSISTENCY:-0}" != "0" ] && extra+=(--edit-consistency "$EDIT_CONSISTENCY")
           # The job is cut off at 355 min. The training process gets whatever is left after

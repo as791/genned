@@ -50,6 +50,9 @@ on:
       faces_real:
         description: Real faces from FairFace train (half aged 0-19) added as real examples; 0 = none
         default: '0'
+      commfor_train_per_class:
+        description: Images per class from the Community Forensics training set (many open-weights generators, 8 each); 0 = none
+        default: '0'
       inpaint_run_id:
         description: Inpainting training data run (inpaint-data.yml) whose real/AI-edited pairs to add; empty = none
         default: ''
@@ -83,6 +86,7 @@ jobs:
       openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
       faces_real: ${{ inputs.faces_real }}
       inpaint_run_id: ${{ inputs.inpaint_run_id }}
+      commfor_train_per_class: ${{ inputs.commfor_train_per_class }}
       resume_run_id: ${{ inputs.resume_run_id }}
 
   train-2:
@@ -103,6 +107,7 @@ jobs:
       openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
       faces_real: ${{ inputs.faces_real }}
       inpaint_run_id: ${{ inputs.inpaint_run_id }}
+      commfor_train_per_class: ${{ inputs.commfor_train_per_class }}
       resume: true
 
   train-3:
@@ -123,6 +128,7 @@ jobs:
       openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
       faces_real: ${{ inputs.faces_real }}
       inpaint_run_id: ${{ inputs.inpaint_run_id }}
+      commfor_train_per_class: ${{ inputs.commfor_train_per_class }}
       resume: true
 
   train-4:
@@ -143,6 +149,7 @@ jobs:
       openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
       faces_real: ${{ inputs.faces_real }}
       inpaint_run_id: ${{ inputs.inpaint_run_id }}
+      commfor_train_per_class: ${{ inputs.commfor_train_per_class }}
       resume: true
 
   train-5:
@@ -163,4 +170,5 @@ jobs:
       openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
       faces_real: ${{ inputs.faces_real }}
       inpaint_run_id: ${{ inputs.inpaint_run_id }}
+      commfor_train_per_class: ${{ inputs.commfor_train_per_class }}
       resume: true
