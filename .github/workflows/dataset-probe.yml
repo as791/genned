@@ -17,6 +17,9 @@ on:
       spread:
         description: 'WebDataset repos: how many tars (spread over the set) to read labels from'
         default: '8'
+      prefix_column:
+        description: 'Parquet repos: count this text column by path prefix over every file (no images); empty = normal probe'
+        default: ''
 
 jobs:
   probe:
@@ -36,8 +39,10 @@ jobs:
           CONFIG: ${{ inputs.config }}
           ROWS: ${{ inputs.rows }}
           SPREAD: ${{ inputs.spread }}
+          PREFIX_COLUMN: ${{ inputs.prefix_column }}
         run: |
           set -o pipefail
           python tools/probe_dataset.py "$DATASET" ${CONFIG:+--config "$CONFIG"} --rows "$ROWS" --spread "$SPREAD" \
+            ${PREFIX_COLUMN:+--prefix-column "$PREFIX_COLUMN"} \
             | tee probe.md
           { echo '```'; cat probe.md; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -173,6 +173,27 @@ def summarize_file(dataset: str, filename: str, rows: int) -> None:
             print(f"  {col}: {len(counts)} distinct values; top: { {k: int(v) for k, v in counts.head(15).items()} }")
 
 
+def prefix_key(value: str, depth: int = 2) -> str:
+    """The first `depth` path segments of a key, e.g. 'partial/sd2' from 'partial/sd2/fake/1.jpg';
+    a key without '/' counts as '(flat)'."""
+    parts = str(value).split("/")
+    return "/".join(parts[:depth]) if len(parts) > 1 else "(flat)"
+
+
+def prefix_counts(dataset: str, column: str) -> dict[str, Counter]:
+    """{parquet file: Counter of prefix_key(value)}, reading only `column` (no image bytes)."""
+    import pyarrow.parquet as pq
+    from huggingface_hub import HfFileSystem
+
+    fs = HfFileSystem()
+    out: dict[str, Counter] = {}
+    for path in sorted(fs.glob(f"datasets/{dataset}/**/*.parquet")):
+        with fs.open(path, "rb") as f:
+            values = pq.read_table(f, columns=[column]).column(column).to_pylist()
+        out[path.split(f"{dataset}/", 1)[-1]] = Counter(prefix_key(v) for v in values)
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("dataset")
@@ -180,6 +201,9 @@ def main() -> None:
     parser.add_argument("--rows", type=int, default=2000, help="Rows to scan per split for value counts")
     parser.add_argument("--spread", type=int, default=8,
                         help="WebDataset repos: how many tars, spread over the whole set, to read labels from")
+    parser.add_argument("--prefix-column", default=None,
+                        help="Parquet repos: read only this text column from every file (no images) and "
+                             "count its values by path prefix, e.g. a key like 'partial/sd2/fake/1.jpg'")
     args = parser.parse_args()
 
     from datasets import get_dataset_config_names, get_dataset_split_names, load_dataset
@@ -189,6 +213,12 @@ def main() -> None:
         args.dataset = search(HfApi(), args.dataset[len("search:"):].strip())
         if args.dataset is None:
             sys.exit("No dataset matched the search.")
+
+    if args.prefix_column:
+        print(f"# {args.dataset}: '{args.prefix_column}' by path prefix, every parquet file")
+        for name, counter in prefix_counts(args.dataset, args.prefix_column).items():
+            print(f"  {name}: {dict(counter.most_common(30))}")
+        return
 
     info = HfApi().dataset_info(args.dataset, files_metadata=True)
     print(f"# {args.dataset}")

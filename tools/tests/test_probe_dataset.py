@@ -78,5 +78,12 @@ class ProbeDatasetTest(unittest.TestCase):
         self.assertEqual(probe_dataset.spread_files(names, 1), names[:1])
 
 
+class PrefixKeyTest(unittest.TestCase):
+    def test_first_two_segments(self):
+        self.assertEqual(probe_dataset.prefix_key("partial/sd2/fake/000000123.jpg"), "partial/sd2")
+        self.assertEqual(probe_dataset.prefix_key("entire/flux/fake/1.jpg"), "entire/flux")
+        self.assertEqual(probe_dataset.prefix_key("4085469.png"), "(flat)")
+
+
 if __name__ == "__main__":
     unittest.main()
