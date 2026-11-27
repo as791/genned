@@ -6,7 +6,7 @@
 #   names: defactify, mj-dalle-sd-nbp (the default set), openfake, phone-photos (real only),
 #          unsplash-phone (real only), cf-eval, fairface (real only, with groups),
 #          magicbrush (real photos and their AI edits), utkface (real, by age),
-#          gan-faces (StyleGAN faces vs real)
+#          gan-faces (StyleGAN faces vs real), opensdi-partial (AI-inpainted, AI only)
 set -u
 PER_CLASS="${1:-250}"
 shift || true
@@ -91,6 +91,11 @@ fetch() {
       # make the app call AI faces real.
       python tools/fetch_eval_data.py --dataset TheKernel01/140k-Real-and-Fake-Faces --split test \
         --out eval-data/gan-faces --per-class "$PER_CLASS" --label-col label
+      ;;
+    opensdi-partial)
+      # AI-only, test only: real photos with part of the picture filled in by SD 2, SD 3, SDXL
+      # or Flux (OpenSDI test set, CC-BY-SA-4.0), editors the training never uses.
+      python tools/fetch_opensdi.py --out eval-data/opensdi-partial --per-editor $(( PER_CLASS / 2 ))
       ;;
     magicbrush)
       # AI-edited real photos: MagicBrush (CC-BY-4.0, evaluation only), real MS-COCO photos
