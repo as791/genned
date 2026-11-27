@@ -18,6 +18,9 @@ on:
       video_frames: {type: string, default: '0'}
       edit_weights: {type: string, default: ''}
       edit_consistency: {type: string, default: '0'}
+      openfake_max_per_generator: {type: string, default: '600'}
+      faces_real: {type: string, default: '0'}
+      inpaint_run_id: {type: string, default: ''}
       resume: {type: boolean, default: false}
       resume_run_id: {type: string, default: ''}
     outputs:
@@ -68,6 +71,8 @@ jobs:
           DEFACTIFY_PER_CLASS: ${{ inputs.defactify_per_class }}
           PHONE_REAL: ${{ inputs.phone_real }}
           VIDEO_FRAMES: ${{ inputs.video_frames }}
+          OPENFAKE_MAX_PER_GENERATOR: ${{ inputs.openfake_max_per_generator }}
+          FACES_REAL: ${{ inputs.faces_real }}
         run: |
           PROPRIETARY="midjourney|dall-?e|gpt-image|imagen|ideogram|grok|recraft|seedream|nano-banana|mystic|veo|sora|kling|firefly|runway|luma|hailuo|ernie|seededit|gemini"
           fetch() {
@@ -82,7 +87,7 @@ jobs:
             fetch --dataset ComplexDataLab/OpenFake --config core --split train --strict-split \
               --out data/train/openfake --per-class "$OPENFAKE_PER_CLASS" \
               --label-col label --ai-values fake --real-values real --generator-col model \
-              --exclude-generators "$PROPRIETARY" --max-per-generator 600 --max-scan 200000
+              --exclude-generators "$PROPRIETARY" --max-per-generator "${OPENFAKE_MAX_PER_GENERATOR:-600}" --max-scan 200000
             fetch --dataset ComplexDataLab/OpenFake --config core --split validation --strict-split \
               --out data/val/openfake --per-class 150 \
               --label-col label --ai-values fake --real-values real --generator-col model \
@@ -111,6 +116,17 @@ jobs:
               [ "$attempt" = 3 ] && { echo "::error::Could not fetch the phone photos"; exit 1; }
             done
           fi
+          # Real faces (FairFace train split, CC-BY-4.0), half of them aged 0-19: the app wrongly
+          # called young children's photos AI. The fairness benchmark uses the validation split.
+          if [ "${FACES_REAL:-0}" -gt 0 ]; then
+            for attempt in 1 2 3; do
+              rm -rf data/train/faces
+              python -u tools/fetch_fairface.py --out data/train/faces --split train \
+                  --count "$FACES_REAL" --young-share 0.5 --seed 4321 && break
+              echo "FairFace fetch failed (attempt $attempt); retrying in 30 s"; sleep 30
+              [ "$attempt" = 3 ] && { echo "::error::Could not fetch the FairFace training faces"; exit 1; }
+            done
+          fi
           # Video frames (GenVideo; clips stay on the runner), sampled the way the app samples
           # a video. Only its open-weights generators are kept: the fetcher skips every other
           # one and fails if an excluded generator's folder appears. Training reads the
@@ -135,6 +151,27 @@ jobs:
             echo "::error::Proprietary-generator images found in the training data"; exit 1
           fi
           du -sh data/train/* data/val/*
+
+      # Real photos and the same photos AI-inpainted (inpaint-data.yml; open-weights models
+      # only). Every 10th pair is kept for validation, both halves of a pair on the same side.
+      - name: Download the inpainting pairs
+        if: inputs.inpaint_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: inpaint-*
+          merge-multiple: true
+          path: data/train/inpaint
+          run-id: ${{ inputs.inpaint_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Hold out inpainting pairs for validation
+        if: inputs.inpaint_run_id != ''
+        run: |
+          mkdir -p data/val/inpaint/real data/val/inpaint/ai
+          ls data/train/inpaint/ai | sort | awk 'NR % 10 == 0' | while read -r f; do
+            mv "data/train/inpaint/ai/$f" data/val/inpaint/ai/ && mv "data/train/inpaint/real/$f" data/val/inpaint/real/
+          done
+          echo "Inpainting pairs: train $(ls data/train/inpaint/ai | wc -l), validation $(ls data/val/inpaint/ai | wc -l)"
 
       - name: Download the previous job's training state
         if: inputs.resume && inputs.resume_run_id == ''
@@ -167,6 +204,8 @@ jobs:
           VIDEO_FRAMES: ${{ inputs.video_frames }}
           EDIT_WEIGHTS: ${{ inputs.edit_weights }}
           EDIT_CONSISTENCY: ${{ inputs.edit_consistency }}
+          FACES_REAL: ${{ inputs.faces_real }}
+          INPAINT: ${{ inputs.inpaint_run_id != '' }}
         run: |
           set -o pipefail
           extra=()
@@ -188,6 +227,11 @@ jobs:
             # A real-only folder: draw AI and real equally often so it doesn't tilt the model.
             train_data+=(data/train/phone); val_data+=(data/val/phone); extra+=(--balance-classes)
           fi
+          if [ "${FACES_REAL:-0}" -gt 0 ]; then
+            # Real-only as well: needs the class balancing too.
+            train_data+=(data/train/faces); [[ " ${extra[*]} " == *" --balance-classes "* ]] || extra+=(--balance-classes)
+          fi
+          [ "$INPAINT" = "true" ] && { train_data+=(data/train/inpaint); val_data+=(data/val/inpaint); }
           [ -n "$EDIT_WEIGHTS" ] && extra+=(--edit-weights "$EDIT_WEIGHTS")
           [ "${EDIT_CONSISTENCY:-0}" != "0" ] && extra+=(--edit-consistency "$EDIT_CONSISTENCY")
           # The job is cut off at 355 min. The training process gets whatever is left after

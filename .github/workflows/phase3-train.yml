@@ -44,6 +44,15 @@ on:
       edit_consistency:
         description: Weight of the edit-consistency loss; 0 = off (on costs about 1.5x training time)
         default: '1'
+      openfake_max_per_generator:
+        description: Most OpenFake training images from one generator (lower = more generators)
+        default: '600'
+      faces_real:
+        description: Real faces from FairFace train (half aged 0-19) added as real examples; 0 = none
+        default: '0'
+      inpaint_run_id:
+        description: Inpainting training data run (inpaint-data.yml) whose real/AI-edited pairs to add; empty = none
+        default: ''
       jobs:
         description: Chained 6-hour jobs (3 for the round 4 defaults; a job is skipped once training has finished)
         type: choice
@@ -71,6 +80,9 @@ jobs:
       video_frames: ${{ inputs.video_frames }}
       edit_weights: ${{ inputs.edit_weights }}
       edit_consistency: ${{ inputs.edit_consistency }}
+      openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
+      faces_real: ${{ inputs.faces_real }}
+      inpaint_run_id: ${{ inputs.inpaint_run_id }}
       resume_run_id: ${{ inputs.resume_run_id }}
 
   train-2:
@@ -88,6 +100,9 @@ jobs:
       video_frames: ${{ inputs.video_frames }}
       edit_weights: ${{ inputs.edit_weights }}
       edit_consistency: ${{ inputs.edit_consistency }}
+      openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
+      faces_real: ${{ inputs.faces_real }}
+      inpaint_run_id: ${{ inputs.inpaint_run_id }}
       resume: true
 
   train-3:
@@ -105,6 +120,9 @@ jobs:
       video_frames: ${{ inputs.video_frames }}
       edit_weights: ${{ inputs.edit_weights }}
       edit_consistency: ${{ inputs.edit_consistency }}
+      openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
+      faces_real: ${{ inputs.faces_real }}
+      inpaint_run_id: ${{ inputs.inpaint_run_id }}
       resume: true
 
   train-4:
@@ -122,6 +140,9 @@ jobs:
       video_frames: ${{ inputs.video_frames }}
       edit_weights: ${{ inputs.edit_weights }}
       edit_consistency: ${{ inputs.edit_consistency }}
+      openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
+      faces_real: ${{ inputs.faces_real }}
+      inpaint_run_id: ${{ inputs.inpaint_run_id }}
       resume: true
 
   train-5:
@@ -139,4 +160,7 @@ jobs:
       video_frames: ${{ inputs.video_frames }}
       edit_weights: ${{ inputs.edit_weights }}
       edit_consistency: ${{ inputs.edit_consistency }}
+      openfake_max_per_generator: ${{ inputs.openfake_max_per_generator }}
+      faces_real: ${{ inputs.faces_real }}
+      inpaint_run_id: ${{ inputs.inpaint_run_id }}
       resume: true
