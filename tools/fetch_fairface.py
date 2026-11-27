@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -99,4 +100,18 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # Stopping a streamed dataset early can leave its reader threads running, and Python then
+    # crashes while shutting down (PyGILState_Release) after all the work is done. Exit
+    # without the interpreter's thread teardown; the files are already written.
+    try:
+        main()
+        code = 0
+    except SystemExit as stop:
+        if isinstance(stop.code, int) or stop.code is None:
+            code = stop.code or 0
+        else:
+            print(stop.code, file=sys.stderr)
+            code = 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
