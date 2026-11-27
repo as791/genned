@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy · Genned</title>
+<meta name="description" content="Genned checks images and videos entirely on your phone. No servers, no accounts, no ads, no analytics, and no internet permission.">
+<meta name="theme-color" content="#1B1F3B">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="./"><img src="assets/logo.svg" alt="">Genned</a>
+    <nav aria-label="Main">
+      <a href="./#how">How it works</a>
+      <a href="./#privacy">Privacy</a>
+      <a href="https://github.com/as791/genned">GitHub</a>
+      <a class="btn" href="./#download">Download</a>
+    </nav>
+  </div>
+</header>
+<main class="doc">
+<h1>Genned privacy policy</h1>
+<p><em>Effective 1 October 2026. Applies to the Genned Android app, as distributed from
+<a href="https://github.com/as791/genned/releases">GitHub Releases</a>.</em></p>
+<p><strong>In short:</strong> Genned checks images and videos entirely on your phone. It has no servers,
+no accounts, no ads and no analytics. It doesn't have Android's internet permission, so it
+cannot send anything anywhere.</p>
+<h2>What Genned collects</h2>
+<p>Nothing. The developer receives no data from the app: no images, videos, results, usage
+statistics, crash reports, identifiers or location.</p>
+<h2>What happens to an image or video you check</h2>
+<ul>
+<li>You share it into Genned or pick it with Android's photo picker. Android gives Genned
+  temporary access to that one file only. Genned never asks for access to your photo
+  library or storage.</li>
+<li>A working copy is made in the app's private storage and analyzed on the phone: an AI
+  image classifier, plus the file's own metadata (EXIF, generator tags, provenance
+  data).</li>
+<li>To tell whether a shared image is a screenshot, Genned looks at the file's name and
+  compares the image's size with your screen, on the phone. If it is one, only the picture
+  inside it is checked. The file name is not stored or logged.</li>
+<li>The working copy is deleted when the check finishes. Leftovers from a failed or
+  cancelled check are deleted the next time the app starts.</li>
+</ul>
+<h2>What stays on your phone</h2>
+<ul>
+<li><strong>History:</strong> for each check, the result (score, classification, the reasons
+  behind it) and a small thumbnail (at most 256 px). The full image is never kept.</li>
+<li>History is stored in the app's private storage. Other apps can't read it, and it is
+  excluded from Android's cloud backup.</li>
+<li>You can delete one entry or clear all of history in the app. Uninstalling the app
+  deletes everything.</li>
+</ul>
+<h2>Sharing a result</h2>
+<p>When you tap "Share result", Genned draws a card from the score and reasons only. Your
+image is never included. The card goes only to the app you choose in Android's share
+sheet. What happens after that is governed by that app's privacy policy.</p>
+<h2>Screen overlay (optional, off by default)</h2>
+<p>The Instagram and WhatsApp bubble (Home or Settings → "Set up the bubble") lets you
+check what's on screen in those apps. It only runs if you turn it on and grant three
+Android permissions:</p>
+<table>
+<thead>
+<tr>
+<th>Permission</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Display over other apps</td>
+<td>To draw the floating bubble.</td>
+</tr>
+<tr>
+<td>Usage access</td>
+<td>To know which app is in front, so the bubble shows only in Instagram or WhatsApp. It reveals app names only, never what's in them.</td>
+</tr>
+<tr>
+<td>Screen capture (asked for every time the overlay starts)</td>
+<td>Lets Genned read your screen. It connects only for the moment you tap the bubble, reads one frame and disconnects; nothing is read while you scroll.</td>
+</tr>
+<tr>
+<td>Notifications (optional, Android 13 and newer)</td>
+<td>To show the bubble's notification with a Stop button and your last result. The bubble works without it.</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>While the overlay is on, Android lists it as running. If notifications are allowed
+  it shows a notification with a Stop button; you can also drag the bubble to the ✕ at
+  the bottom of the screen to turn it off.</li>
+<li>The bubble's position and whether you closed the home screen's bubble card are saved
+  on your phone, with the app's other data.</li>
+<li>A frame you capture is handled exactly like a shared image: analyzed on the phone,
+  then deleted, with only the result and a thumbnail kept in history.</li>
+<li>Genned never reads other apps' data, messages, network traffic or accessibility
+  information.</li>
+<li>Turning the overlay off, or tapping Stop, ends screen capture immediately.</li>
+</ul>
+<h2>Permissions</h2>
+<p>Genned asks only for the overlay permissions above, and only when you turn the overlay
+on. It has no internet, camera, microphone, location, contacts or storage permission.</p>
+<h2>Children</h2>
+<p>Genned is not directed at children and collects no data from anyone.</p>
+<h2>Changes</h2>
+<p>If this policy changes, the new version will be published here and noted in the
+release that introduces the change. A version of Genned that sent any data off your
+phone would need the internet permission. That would be stated in this policy and in
+the release notes before it shipped.</p>
+<h2>Contact</h2>
+<p>Questions or concerns: open an issue at https://github.com/as791/genned/issues.</p>
+</main>
+<footer>
+  <div class="wrap">
+    <span>© 2026 Genned · Apache-2.0</span>
+    <nav aria-label="Footer">
+      <a href="./">Home</a>
+      <a href="https://github.com/as791/genned/blob/main/PRIVACY.md">This policy on GitHub</a>
+      <a href="https://github.com/as791/genned">Source code</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>

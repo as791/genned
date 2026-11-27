@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Genned: is it real? Check before you share</title>
+<meta name="description" content="Genned is a free Android app that tells you whether a photo or video is likely AI-generated, in plain words, right on your phone. Nothing is uploaded.">
+<meta name="theme-color" content="#1B1F3B">
+<link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="style.css">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Genned: is it real? Check before you share">
+<meta property="og:description" content="A free Android app that checks whether a photo or video is likely AI-generated. Runs on your phone; nothing is uploaded.">
+<meta property="og:image" content="https://as791.github.io/genned/assets/brand/github-social-preview-1280x640.png">
+<meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="logo" href="./"><img src="assets/logo.svg" alt="">Genned</a>
+    <nav aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a href="#accuracy">Accuracy</a>
+      <a href="#responsible-ai">Responsible AI</a>
+      <a href="#privacy">Privacy</a>
+      <a href="https://github.com/as791/genned">GitHub</a>
+      <a class="btn" href="#download">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow">Free Android app · Open source</span>
+        <h1 id="hero-title">Is it real?<br>Check before you share.</h1>
+        <p class="lede">Genned tells you whether a photo or video is likely AI-generated, in plain words, right on your phone. Nothing is uploaded.</p>
+        <div class="cta">
+          <a class="btn big" href="https://github.com/as791/genned/releases/download/v0.5.1/genned-0.5.1-arm64-v8a.apk">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a1 1 0 0 1 1 1v9.59l3.3-3.3a1 1 0 1 1 1.4 1.42l-5 5a1 1 0 0 1-1.4 0l-5-5a1 1 0 1 1 1.4-1.42l3.3 3.3V4a1 1 0 0 1 1-1Zm-7 15a1 1 0 0 1 1 1v1h12v-1a1 1 0 1 1 2 0v2a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1Z"/></svg>
+            Download for Android
+          </a>
+          <a class="btn big ghost" href="#how">See how it works</a>
+        </div>
+        <p class="meta">Version 0.5.1 · 191 MB · Android 8.0 or newer · No account needed</p>
+      </div>
+      <div class="hero-phone">
+        <div class="phone"><img src="assets/screens/03_result_likely_ai.jpg" alt="Genned result screen saying Likely AI-generated, with the AI likelihood and what each check found" width="720" height="1280"></div>
+        <p class="caption">App screen with a sample result</p>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="why-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="why-title">You can't tell by looking any more.</h2>
+        <p>AI pictures and videos now look real enough to fool almost anyone. Genned gives you a second opinion before you believe, forward or reply.</p>
+      </div>
+      <div class="grid three">
+        <div class="card"><span class="emoji" aria-hidden="true">💬</span><h3>Forwarded "news"</h3><p>A shocking photo lands in the family WhatsApp group. By the time anyone asks if it's real, it's in ten more groups.</p></div>
+        <div class="card"><span class="emoji" aria-hidden="true">💘</span><h3>Fake profiles</h3><p>Flawless faces on Instagram and dating apps that belong to no one: bots, catfishing, or a scam that ends with "can you send money?"</p></div>
+        <div class="card"><span class="emoji" aria-hidden="true">🎬</span><h3>Viral Reels</h3><p>Disasters, celebrities and "caught on camera" moments that never happened, made in minutes with AI video tools.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="how" aria-labelledby="how-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="how-title">How it works</h2>
+        <p>Three taps, a few seconds, and an answer you can understand.</p>
+      </div>
+      <div class="grid three steps">
+        <div class="card step"><h3>Share it to Genned</h3><p>From WhatsApp, Instagram, your gallery or any app with a Share button. Or open Genned and pick a photo or video.</p></div>
+        <div class="card step"><h3>Genned checks it on your phone</h3><p>Two AI detectors look at the picture, and Genned reads what the file says about itself: camera details, AI tool tags and signed Content Credentials.</p></div>
+        <div class="card step"><h3>You get a plain answer</h3><p>Likely AI-generated, Uncertain, or Likely not AI-generated, with the reasons behind it.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="answers-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="answers-title">Three answers. No guesswork dressed up as certainty.</h2>
+        <p>Genned only says "likely AI-generated" at 90% or more, and "likely not" below 15%. In between, it says it can't tell, and why, because that range is where detectors are wrong too often.</p>
+      </div>
+      <div class="verdicts">
+        <div class="verdict">
+          <span class="badge high">Likely AI-generated</span>
+          <div class="phone small"><img src="assets/screens/03_result_likely_ai.jpg" alt="Result screen: Likely AI-generated" loading="lazy"></div>
+          <p>The checks point to AI. Think twice before you share or believe it.</p>
+        </div>
+        <div class="verdict">
+          <span class="badge unc">Uncertain</span>
+          <div class="phone small"><img src="assets/screens/03b_result_uncertain_high_score.jpg" alt="Result screen: Uncertain, explaining the cut-off the score missed" loading="lazy"></div>
+          <p>Genned can't tell, and says so instead of guessing. Treat it as no answer.</p>
+        </div>
+        <div class="verdict">
+          <span class="badge low">Likely not AI-generated</span>
+          <div class="phone small"><img src="assets/screens/05_result_likely_not_ai.jpg" alt="Result screen: Likely not AI-generated" loading="lazy"></div>
+          <p>Nothing points to AI. Still an estimate, not proof.</p>
+        </div>
+      </div>
+      <p class="caption">App screens with sample results.</p>
+    </div>
+  </section>
+
+  <section class="alt" id="features" aria-labelledby="features-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="features-title">Made for how you actually scroll</h2>
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <h3>A bubble for Instagram and WhatsApp</h3>
+          <p>Turn on the Genned bubble and tap it while you scroll. It checks what's on your screen without leaving the app.</p>
+          <ul>
+            <li>Set up in three steps, with a checklist that moves on by itself.</li>
+            <li>The screen is captured only at the moment you tap.</li>
+            <li>Drag it to the ✕ to turn it off.</li>
+          </ul>
+        </div>
+        <div class="shot"><div class="phone small"><img src="assets/screens/10_overlay_setup.jpg" alt="Bubble setup screen with a three-step checklist" loading="lazy"></div></div>
+      </div>
+
+      <div class="feature flip">
+        <div class="text">
+          <h3>Verified Content Credentials</h3>
+          <p>Some cameras, editors and AI tools, ChatGPT among them, sign a record into the file of how it was made. When Genned finds one from a trusted signer, it shows "Verified" and what the signer declared, checked against the official C2PA trust lists, offline.</p>
+        </div>
+        <div class="shot"><div class="phone small"><img src="assets/screens/06_result_verified.jpg" alt="Result screen showing Verified Content Credentials" loading="lazy"></div></div>
+      </div>
+
+      <div class="feature">
+        <div class="text">
+          <h3>Photos, screenshots and videos</h3>
+          <p>Check photos, Reels and Shorts up to three minutes long. Share a screenshot and Genned checks only the picture inside it, not the app around it.</p>
+        </div>
+        <div class="shot"><div class="phone small"><img src="assets/screens/04_result_uncertain_video.jpg" alt="Result screen for a video" loading="lazy"></div></div>
+      </div>
+
+      <div class="feature flip">
+        <div class="text">
+          <h3>Your checks, kept on your phone</h3>
+          <p>Your recent checks are on the home screen, and History groups them under Today, Yesterday and Earlier, with small thumbnails only. Swipe one away to delete it. Uninstalling the app deletes everything.</p>
+        </div>
+        <div class="shot"><div class="phone small"><img src="assets/screens/02_home_with_history.jpg" alt="Home screen with recent checks" loading="lazy"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="accuracy" aria-labelledby="accuracy-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="accuracy-title">Honest about accuracy</h2>
+        <p>Genned is measured on test images it never trained on, and every result is published on GitHub. Here is what the latest models changed.</p>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="num">34%</div><div class="from">was 56%</div><p>Real phone photos that come out "Uncertain"</p></div>
+        <div class="stat"><div class="num">0.7%</div><div class="from">was 3.3%</div><p>Real phone photos wrongly called "Likely AI-generated"</p></div>
+        <div class="stat"><div class="num">56%</div><div class="from">was 47%</div><p>Images from newer AI generators caught as "Likely AI-generated"</p></div>
+        <div class="stat"><div class="num">37%</div><div class="from">was 65%</div><p>AI images that a universal adversarial pattern disguises as real</p></div>
+      </div>
+      <p class="note">Held-out benchmarks, 300 images per class, comparing Genned 0.5.1 with the models it shipped before, on the same images. The attack figure is a later, larger re-test (120 images; 95% interval 29–46%; 28% on the first 60). <a href="https://github.com/as791/genned/issues/16">Full results and method</a>.</p>
+      <p class="note">On an outside test set with thousands of AI generators (Community Forensics-Eval) Genned is weaker than on its own tests: AUC 0.868 (95% interval 0.826–0.908), with 2.3% of real images wrongly called AI. Real faces are treated the same across ethnicity and gender (0–2.4% wrongly called AI in every group). <a href="https://github.com/as791/genned/blob/main/internal-docs/MODEL.md#evaluation-scorecard-v050-november-2026">Every measure, with its interval</a>.</p>
+
+      <div class="example" style="margin-top: 72px">
+        <div class="profile">
+          <img src="assets/ai-profile-example.jpg" alt="An AI-generated portrait of a smiling woman at a café terrace" width="640" height="800" loading="lazy">
+          <div class="result"><small>Genned checked this photo</small><strong>Uncertain</strong><span>AI likelihood: 26%</span></div>
+        </div>
+        <div>
+          <h3 style="font-size: 28px; font-weight: 800">What it can't do, yet</h3>
+          <p style="margin-top: 14px; color: var(--text-2)">This person doesn't exist: the photo was made with a recent AI image model. Genned didn't call it AI. It said "Uncertain". It didn't call it real either.</p>
+          <blockquote>A profile that looks too perfect, plus "Uncertain", is a reason to be careful, not a reason to relax.</blockquote>
+          <div class="limits">
+            <ul>
+              <li>A real photo with part of it edited by AI is usually missed: more than half come out "Likely not AI-generated".</li>
+              <li>Real photos of young children are wrongly called AI more often than photos of adults (about 5–8% against about 1%).</li>
+              <li>Pictures from the newest closed AI tools are the hardest case.</li>
+              <li>Edits like grain, sharpening or screenshots of screenshots can hide AI: up to 13% of edited AI images still come out "Likely not AI-generated".</li>
+              <li>Someone who sets out to fool it on purpose can.</li>
+              <li>Every result is an estimate, not proof.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="alt" id="responsible-ai" aria-labelledby="rai-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="rai-title">Responsible AI, built in</h2>
+        <p>A tool that judges what's real has to earn trust itself. Here is how Genned is governed and how hard we try to break it.</p>
+      </div>
+      <div class="grid two">
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🛡️</span>
+          <h3>Governance</h3>
+          <ul class="ticks">
+            <li><strong>Provenance standards.</strong> Verifies Content Credentials (C2PA) against the official C2PA and Content Authenticity Initiative trust lists. Unknown or broken signatures are shown, never counted.</li>
+            <li><strong>Every model change is measured.</strong> New models ship only after held-out benchmarks, published with a model card and the full decision history.</li>
+            <li><strong>Clean training data.</strong> Retrained only on images from open-weights generators, with the licence of every model and dataset checked.</li>
+            <li><strong>Honest outputs.</strong> Calibrated scores, "Uncertain" instead of false confidence, and never "real" or "fake".</li>
+            <li><strong>Private by design.</strong> No internet permission, no data collected, open source.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="emoji" aria-hidden="true">🎯</span>
+          <h3>Tested against attacks</h3>
+          <p>Every model release is attacked in CI: universal adversarial patterns, transfer attacks from public detectors, black-box query attacks and white-box attacks, each also re-saved to hide the traces. The latest models were trained against universal patterns and everyday edits.</p>
+          <table class="attacks">
+            <thead><tr><th>Attack</th><th>Before</th><th>Now</th></tr></thead>
+            <tbody>
+              <tr><td>Universal adversarial pattern</td><td>65%</td><td><strong>28%</strong></td></tr>
+              <tr><td>Transfer from public detectors</td><td>88%</td><td><strong>65%</strong></td></tr>
+              <tr><td>Black-box queries</td><td>70%</td><td><strong>40%</strong></td></tr>
+              <tr><td>White box (attacker has the models)</td><td>100%</td><td>100%</td></tr>
+            </tbody>
+          </table>
+          <p class="note">Share of AI images an attack disguises as real; lower is better. 60 images per attack, at the same attack strength before and after. A larger re-test (120 images) gives 37%, 57% and 33% for the first three, with 95% intervals of about ±8 points. Defences that didn't hold up against adaptive attackers were not shipped. Genned is not robust to someone who has the model files and sets out to fool it. <a href="https://github.com/as791/genned/blob/main/internal-docs/MODEL.md">Method and full results</a>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="privacy" id="privacy" aria-labelledby="privacy-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="privacy-title">Private by design. Not by promise.</h2>
+        <p>Genned doesn't have Android's internet permission, so it cannot send anything anywhere, even if it wanted to.</p>
+      </div>
+      <div class="grid three">
+        <div class="card"><h3>Nothing uploaded</h3><p>Every check runs on your phone. Photos, videos and screen captures never leave it.</p></div>
+        <div class="card"><h3>Nothing collected</h3><p>No account, no ads, no analytics, no crash reports. The developer receives no data at all.</p></div>
+        <div class="card"><h3>Nothing hidden</h3><p>The code is open source under Apache-2.0. Read the <a href="privacy.html">privacy policy</a> or the code itself.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="faq-title">
+    <div class="wrap" style="max-width: 860px">
+      <div class="head"><h2 id="faq-title">Questions</h2></div>
+      <details>
+        <summary>Is Genned free?</summary>
+        <p>Yes. Free, no ads, no in-app purchases, and open source.</p>
+      </details>
+      <details>
+        <summary>How do I install it?</summary>
+        <ol>
+          <li>On your phone, tap <a href="https://github.com/as791/genned/releases/download/v0.5.1/genned-0.5.1-arm64-v8a.apk">Download for Android</a> (191 MB). It works on nearly every phone sold in the last several years.</li>
+          <li>Open the downloaded file. Android asks you to allow installs from your browser or Files app; allow it, then tap Install.</li>
+          <li>Not sure your phone is supported? Use the <a href="https://github.com/as791/genned/releases/download/v0.5.1/genned-0.5.1.apk">universal APK</a> (263 MB), which works on every Android phone.</li>
+        </ol>
+      </details>
+      <details>
+        <summary>Why isn't it on Google Play?</summary>
+        <p>Not yet. Until then, every release is published on GitHub, signed with the same key, with SHA-256 checksums for each download on the <a href="https://github.com/as791/genned/releases/tag/v0.5.1">release page</a>.</p>
+      </details>
+      <details>
+        <summary>How do I get updates?</summary>
+        <p>Genned has no internet access, so it can't check for updates itself. Come back here, or use Watch → Custom → Releases on the GitHub repository. Install the new APK over the old one; your history is kept.</p>
+      </details>
+      <details>
+        <summary>Is there an iPhone version?</summary>
+        <p>No, Genned is Android only for now.</p>
+      </details>
+      <details>
+        <summary>Can Genned be wrong?</summary>
+        <p>Yes. It is an estimate, not proof. That's why it says "Uncertain" when it can't tell, and why the accuracy section above lists what it still gets wrong.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="alt download" id="download" aria-labelledby="download-title">
+    <div class="wrap">
+      <div class="head">
+        <h2 id="download-title">Check before you share.</h2>
+        <p>Genned 0.5.1, released 26 November 2026. Android 8.0 or newer.</p>
+      </div>
+      <div class="cta">
+        <a class="btn big" href="https://github.com/as791/genned/releases/download/v0.5.1/genned-0.5.1-arm64-v8a.apk">Download for Android · 191 MB</a>
+        <a class="btn big ghost" href="https://github.com/as791/genned/releases/tag/v0.5.1">All downloads and checksums</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Genned · Apache-2.0 · Every result is an estimate, not proof.</span>
+    <nav aria-label="Footer">
+      <a href="privacy.html">Privacy policy</a>
+      <a href="https://github.com/as791/genned">Source code</a>
+      <a href="https://github.com/as791/genned/releases">Releases</a>
+      <a href="https://github.com/as791/genned/issues">Report a problem</a>
+    </nav>
+  </div>
+</footer>
+</body>
+</html>
